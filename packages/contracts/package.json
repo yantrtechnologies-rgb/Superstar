@@ -1,0 +1,13 @@
+{
+  "name": "@cadencedesk/contracts",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "main": "dist/index.js",
+  "types": "src/index.ts"
+}

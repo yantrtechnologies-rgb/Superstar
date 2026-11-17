@@ -68,11 +68,13 @@ export function listPosts(userId: string, slug: string, scheduledOnly = false, g
   });
 }
 
+export class DraftRequestConflictError extends Error {}
+
 type FollowUpDraft = { text: string; delayMinutes: number };
 
 export async function savePost(
   userId: string, slug: string, content: string, postId?: string, revision?: number,
-  image?: Uint8Array<ArrayBuffer>, followUp?: FollowUpDraft | null,
+  image?: Uint8Array<ArrayBuffer>, followUp?: FollowUpDraft | null, createRequestKey?: string,
 ) {
   if (followUp && (!followUp.text.trim() || followUp.text.length > 2000
     || !Number.isInteger(followUp.delayMinutes) || followUp.delayMinutes < 1 || followUp.delayMinutes > 10_080)) {
@@ -82,6 +84,9 @@ export async function savePost(
     followUpText: followUp?.text.trim() ?? null, followUpDelayMinutes: followUp?.delayMinutes ?? null,
   };
 
+  if (createRequestKey && (postId || revision !== undefined || image)) {
+    throw new WorkspaceAccessError('The request key can only create a text draft.');
+  }
   if (!content.trim() || content.length > 4096) throw new WorkspaceAccessError('Use 1–4,096 characters.');
   const scoped = await requireScope(prisma, userId, slug);
   if (!canWritePosts(scoped.role)) throw new WorkspaceAccessError('You cannot edit drafts.');
@@ -91,6 +96,20 @@ export async function savePost(
     if (!canWritePosts(role)) throw new WorkspaceAccessError('You cannot edit drafts.');
     if (scoped.workspaceId !== workspaceId) throw new WorkspaceAccessError('Workspace is unavailable.');
     const asset = uploaded ? await tx.asset.create({ data: { workspaceId, ...uploaded } }) : null;
+    if (createRequestKey) {
+      const created = await tx.post.createMany({ data: { workspaceId, createRequestKey }, skipDuplicates: true });
+      const post = await tx.post.findUniqueOrThrow({ where: { workspaceId_createRequestKey: { workspaceId, createRequestKey } } });
+      if (created.count) {
+        await tx.postRevision.create({ data: { postId: post.id, number: 1, content, ...followUpData } });
+      } else {
+        const original = await tx.postRevision.findUniqueOrThrow({ where: { postId_number: { postId: post.id, number: 1 } } });
+        if (original.content !== content || original.followUpText !== (followUp?.text.trim() ?? null)
+          || original.followUpDelayMinutes !== (followUp?.delayMinutes ?? null)) {
+          throw new DraftRequestConflictError('The idempotency key was already used for another draft.');
+        }
+      }
+      return post;
+    }
     if (!postId || revision === undefined) {
       return tx.post.create({ data: { workspaceId, revisions: { create: { number: 1, content, assetId: asset?.id, ...followUpData } } } });
     }
@@ -107,7 +126,7 @@ export async function savePost(
       },
     });
     return tx.post.findUniqueOrThrow({ where: { id: postId } });
-  }, serializable);
+  }, createRequestKey ? undefined : serializable);
 }
 
 export async function transitionPost(

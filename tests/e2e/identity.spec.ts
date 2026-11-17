@@ -409,3 +409,31 @@ test('an admin can configure reviewed RSS publishing and share the approved foll
     await prisma.$disconnect();
   }
 });
+
+test('workspace admins can issue a scoped API key and revoke it', async ({ page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  const email = `api-key-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Key Management Studio');
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
+  try {
+    await page.getByRole('link', { name: 'Team settings', exact: true }).click();
+    await page.getByRole('link', { name: 'Manage API keys' }).click();
+    await page.getByLabel('Key name').fill('Reporting integration');
+    await page.getByLabel('Read posts and destination results').check();
+    await page.getByRole('button', { name: 'Create API key' }).click();
+    const token = page.getByLabel('New API key', { exact: true });
+    await expect(token).toBeVisible();
+    expect(await token.inputValue()).toMatch(/^cdk_[A-Za-z0-9_-]{43}$/);
+    await page.reload();
+    await expect(token).toHaveCount(0);
+    const key = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Reporting integration' }) });
+    await expect(key.getByText(/posts:read/)).toBeVisible();
+    await key.getByRole('button', { name: 'Revoke Reporting integration' }).click();
+    await expect(key.getByText(/Revoked · Expires/)).toBeVisible();
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { email } });
+    await prisma.$disconnect();
+  }
+});

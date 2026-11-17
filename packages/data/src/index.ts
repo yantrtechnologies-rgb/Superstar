@@ -18,3 +18,4 @@ export * from './feed';
 export * from './webhooks';
 export { pinPublicIpv4 } from './outbound';
 export type { WebhookDeliveryState } from '@prisma/client';
+export * from './api-access';

@@ -73,3 +73,10 @@
 - An RSS rule may schedule imports after a human approval. The authorizing owner or admin, enabled rule, channel set and current approval are rechecked when reserving a shared slot. Existing draft-only imports retain their mode. Slots that become available are picked up on the next scheduling pass.
 - A Discord follow-up is part of the approved revision. A confirmed parent publication creates its delayed destination and outbox event atomically. The reply uses that parent's message ID, the worker's normal destination retry guards and suppressed mentions. The post publication webhook represents the parent publication.
 - Engagement-triggered plugs, unattended RSS publishing, live Discord replies, and video attachments in the composer remain open.
+
+## Workspace API checkpoint
+
+- Owners and admins issue expiring keys with explicit endpoint scopes. The database stores a digest and prefix. The key resolves only for its bound workspace and while the issuer remains an owner or admin.
+- The NestJS API shares Zod contracts with the web app and uses the existing publishing commands. Draft creation can bind a request ID to the original draft. The review and scheduling endpoints preserve revision approval and the same transactional outbox.
+- Rate limiting uses an atomic Redis counter for each key and minute. API readiness requires PostgreSQL and Redis. A request receives 503 when the rate-limit cache is unavailable.
+- SDK, CLI, MCP, embedded onboarding and the partnership workflow remain pending.

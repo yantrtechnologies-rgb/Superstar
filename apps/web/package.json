@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
+    "@cadencedesk/contracts": "workspace:*",
     "@cadencedesk/data": "workspace:*",
     "next": "16.4.6",
     "next-auth": "5.0.0-beta.32",

@@ -108,3 +108,25 @@ To transcribe the audio of a workspace MP4, configure `OPENAI_TRANSCRIBE_MODEL` 
 When creating an RSS rule, enable **Schedule approved imports in the next shared slot** and select its destinations. A compatible imported item enters review with those destinations. Approving its current revision lets the worker schedule it in the next shared posting slot. Items that exceed destination limits open as drafts for editing. If a slot is unavailable, the rule reports the reason and retries after five minutes. Pausing a rule stops future imports and automatic scheduling. Cancel a post in Posts to remove its existing pending destinations.
 
 In the post editor, expand **Discord follow-up** to add reply text and a delay. The reply appears in the revision preview. Each successful Discord destination schedules its own reply, and the Posts screen shows the reply's status. Grant the bot **Read Message History** along with channel access and posting permission. [Discord message replies](https://docs.discord.com/developers/resources/message#create-message)
+
+## Workspace REST API
+
+Workspace owners and admins can issue and revoke keys under **Team settings → Manage API keys**. Use the key in the `Authorization: Bearer` header and the matching workspace slug in `/v1/workspaces/{workspace}`. Keys stop working at expiry, revocation, or when the issuing member loses owner or admin access. Set `API_PUBLIC_URL` to the API's public base URL if the documentation is hosted separately.
+
+| Method and path under the workspace prefix | Scope |
+| --- | --- |
+| `GET /channels` | `channels:read` |
+| `GET /posts` and `GET /posts/{id}` | `posts:read` |
+| `POST /posts` and `POST /posts/{id}/review` | `posts:write` |
+| `POST /posts/{id}/schedule` and `POST /posts/{id}/cancel` | `posts:schedule` |
+
+List endpoints accept `limit` and `offset` and return `nextOffset`. Draft creation accepts an optional UUID in `Idempotency-Key`. Reuse that UUID when retrying the same payload. A different payload with the same key returns HTTP 409. Request review in the API and approve the revision in CadenceDesk or with a client review link. Scheduling supports `now`, `next`, and `at` with an explicit future UTC timestamp.
+
+The API uses Redis for a per-key minute limit configured with `API_REQUESTS_PER_MINUTE`. A rate-limited response includes `Retry-After`. Swagger UI is at `/docs`, and the OpenAPI document is at `/docs-json`.
+
+Example using a locally running API
+
+```sh
+curl -H "Authorization: Bearer $CADENCEDESK_API_KEY" \
+  "http://localhost:3001/v1/workspaces/$CADENCEDESK_WORKSPACE/posts?limit=25"
+```

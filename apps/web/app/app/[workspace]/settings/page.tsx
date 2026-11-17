@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { canManageTeam, invitationRoles, listWorkspaceTeam, ownerInvitationRoles } from '@cadencedesk/data';
 import { notFound } from 'next/navigation';
 import { requireUser } from '../../../../lib/require-user';
@@ -21,6 +22,7 @@ export default async function TeamSettings({ params, searchParams }: {
   return (
     <>
       <h1>Team settings</h1>
+      {canManageTeam(team.role) && <Link href={`/app/${slug}/settings/api-keys`}>Manage API keys</Link>}
       <h2>{team.workspace.name}</h2>
       <ul className="workspaces-list">
         {team.workspace.memberships.map(({ user: member, role }) => (
