@@ -1,21 +1,19 @@
 x-application: &application
   image: cadencedesk-local
   build: .
-  environment:
+  environment: &application-env
     DATABASE_URL: postgresql://cadencedesk:cadencedesk@postgres:5432/cadencedesk
     REDIS_URL: redis://redis:6379
-    TEMPORAL_ADDRESS: temporal:7233
-    TEMPORAL_NAMESPACE: default
-    OBJECT_STORAGE_ENDPOINT: http://storage:9000
-    OBJECT_STORAGE_BUCKET: cadencedesk
-    OBJECT_STORAGE_ACCESS_KEY: cadencedesk
-    OBJECT_STORAGE_SECRET_KEY: cadencedesk-local
     APP_MODE: self-hosted
-    APP_URL: ${APP_URL:-http://localhost:3000}
-    AUTH_URL: ${APP_URL:-http://localhost:3000}
-    AUTH_SECRET: ${AUTH_SECRET:-}
-    RESEND_API_KEY: ${RESEND_API_KEY:-}
-    EMAIL_FROM: ${EMAIL_FROM:-}
+
+x-publishing-env: &publishing-env
+  <<: *application-env
+  OBJECT_STORAGE_ENDPOINT: http://storage:9000
+  OBJECT_STORAGE_BUCKET: cadencedesk
+  OBJECT_STORAGE_ACCESS_KEY: cadencedesk
+  OBJECT_STORAGE_SECRET_KEY: cadencedesk-local
+  DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+  DISCORD_WORKSPACE_CHANNELS: ${DISCORD_WORKSPACE_CHANNELS:-}
 
 services:
   postgres:
@@ -74,6 +72,13 @@ services:
         condition: service_healthy
   web:
     <<: *application
+    environment:
+      <<: *publishing-env
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      AUTH_URL: ${APP_URL:-http://localhost:3000}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     command: ["pnpm", "--filter", "@cadencedesk/web", "start"]
     depends_on:
       migrate:
@@ -90,10 +95,16 @@ services:
       - "127.0.0.1:3001:3001"
   worker:
     <<: *application
+    environment:
+      <<: *publishing-env
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
     command: ["pnpm", "--filter", "@cadencedesk/worker", "start"]
     depends_on:
       temporal:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:3002:3002"
 

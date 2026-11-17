@@ -18,6 +18,10 @@ model Workspace {
   invitations Invitation[]
   auditEvents AuditEvent[]
 
+  assets Asset[]
+  channels Channel[]
+  posts Post[]
+
   @@map("workspaces")
 }
 
@@ -104,4 +108,135 @@ model AuditEvent {
 
   @@index([workspaceId, createdAt])
   @@map("audit_events")
+}
+
+enum PostState {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  SCHEDULED
+  CANCELED
+}
+
+enum PublishState {
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  CANCELED
+  FAILED
+  UNCERTAIN
+}
+
+model Channel {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  provider    String
+  externalId  String   @map("external_id")
+  guildId     String   @map("guild_id")
+  name        String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  destinations Destination[]
+
+  @@unique([workspaceId, provider, externalId])
+  @@map("channels")
+}
+
+model Post {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @map("workspace_id") @db.Uuid
+  revision    Int       @default(1)
+  state       PostState @default(DRAFT)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  scheduledAt DateTime? @map("scheduled_at")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  revisions   PostRevision[]
+  destinations Destination[]
+
+  @@index([workspaceId, scheduledAt])
+  @@map("posts")
+}
+
+model PostRevision {
+  postId    String   @map("post_id") @db.Uuid
+  number    Int
+  channelIds String[] @default([]) @db.Uuid @map("channel_ids")
+  content   String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  approval  Approval?
+  assetId   String? @db.Uuid @map("asset_id")
+  asset     Asset? @relation(fields: [assetId], references: [id])
+
+  @@id([postId, number])
+  @@map("post_revisions")
+}
+
+model Approval {
+  postId    String   @map("post_id") @db.Uuid
+  revision  Int
+  reviewerId String @map("reviewer_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  version PostRevision @relation(fields: [postId, revision], references: [postId, number], onDelete: Cascade)
+
+  @@id([postId, revision])
+  @@map("approvals")
+}
+
+model Destination {
+  id          String       @id @default(uuid()) @db.Uuid
+  postId      String       @map("post_id") @db.Uuid
+  channelId   String       @map("channel_id") @db.Uuid
+  revision    Int
+  state       PublishState @default(SCHEDULED)
+  startedAt   DateTime?    @map("started_at")
+  notBefore   DateTime?    @map("not_before")
+  externalId  String?      @map("external_id")
+  permalink   String?
+  error       String?
+  post        Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  channel     Channel      @relation(fields: [channelId], references: [id], onDelete: NoAction)
+  outbox      OutboxEvent?
+  attempts    PublishAttempt[]
+
+  @@index([postId, revision])
+  @@index([state, startedAt])
+  @@map("destinations")
+}
+
+model PublishAttempt {
+  id            String       @id @default(uuid()) @db.Uuid
+  destinationId String       @map("destination_id") @db.Uuid
+  number        Int
+  state         PublishState
+  startedAt     DateTime     @default(now()) @map("started_at")
+  finishedAt    DateTime?    @map("finished_at")
+  error         String?
+  destination   Destination  @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  @@unique([destinationId, number])
+  @@map("publish_attempts")
+}
+
+model OutboxEvent {
+  destinationId String      @id @map("destination_id") @db.Uuid
+  dueAt         DateTime    @map("due_at")
+  dispatchedAt  DateTime?   @map("dispatched_at")
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  @@index([dispatchedAt, dueAt])
+  @@map("outbox_events")
+}
+
+model Asset {
+  id          String         @id @default(uuid()) @db.Uuid
+  workspaceId String         @db.Uuid @map("workspace_id")
+  key         String         @unique
+  type        String
+  size        Int
+  checksum    String
+  createdAt   DateTime       @default(now()) @map("created_at")
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  revisions   PostRevision[]
+
+  @@index([workspaceId])
+  @@map("assets")
 }

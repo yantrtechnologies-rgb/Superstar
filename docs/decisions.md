@@ -19,3 +19,11 @@
 - Workspace selection uses the route slug. The server derives the actor from the session and scopes each lookup to its membership. New workspaces receive an owner and an audit event in the create transaction.
 - Invitations are tied to a verified email and expire after seven days. Accepting an invitation creates membership and records the audit event in a transaction. Failed email delivery leaves the invitation available to the intended recipient and the sender can retry.
 - Owners can invite admins, editors, reviewers and viewers. Admins can invite editors, reviewers and viewers. All workspace members can view the team roster and their own workspace overview. Feature commands will add their capability checks as their surfaces ship.
+
+## Publishing core
+
+- Discord uses an operator-installed bot with workspace-specific destination grants. The channel and worker commands check the grant before calling Discord. The first adapter supports server text channels and uses a stable nonce. The [Discord Create Message reference](https://docs.discord.com/developers/resources/message#create-message) defines the request contract.
+- Approval binds the text, attachment and destination set to one revision. Editing creates a draft revision that requires fresh approval. Workspace owners and admins may approve their own posts in this phase.
+- PostgreSQL commits destinations and outbox rows atomically. Temporal uses one stable workflow ID per destination. It backs off confirmed rate limits. A crash or ambiguous external result moves the destination to uncertain, where the operator can check Discord before sending again.
+- The draft form relays one PNG or JPEG to a signed PUT URL. It stores the original under the workspace key and checks size, signature and checksum before publication. Automatic cleanup for unreferenced objects and media renditions are pending.
+- The first calendar surface is an agenda. The schedule input is UTC. The agenda renders in the workspace time zone. Month and week views, rescheduling and manual destination retries remain open.

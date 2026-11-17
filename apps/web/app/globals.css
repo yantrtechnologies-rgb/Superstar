@@ -84,3 +84,19 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .identity-shell { margin: 1rem auto; }
   .workspace-shell { grid-template-columns: minmax(0, 1fr); }
 }
+
+.post-list { display: grid; gap: 1.25rem; margin-block: 1.25rem; }
+.post-list > li { border: 1px solid #dddfd7; border-radius: .75rem; padding: 1.25rem; background: white; }
+.post-list h2 { margin-top: 0; }
+.post-list article > * + * { margin-top: .75rem; }
+.post-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+.identity-form textarea {
+  width: 100%;
+  border: 1px solid #777f77;
+  border-radius: .5rem;
+  padding: .65rem .75rem;
+  background: #fff;
+  color: #202623;
+}
+.channel-choice { display: block; margin-block: .5rem; }
+.channel-choice input { width: auto; }

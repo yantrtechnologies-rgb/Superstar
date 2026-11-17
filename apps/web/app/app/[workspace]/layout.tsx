@@ -20,6 +20,9 @@ export default async function WorkspaceLayout({ children, params }: {
         <Link className="wordmark" href="/app">CadenceDesk AI</Link>
         <nav aria-label="Workspace navigation">
           <Link href={`/app/${workspace}`}>Overview</Link>
+          <Link href={`/app/${workspace}/calendar`}>Agenda</Link>
+          <Link href={`/app/${workspace}/posts`}>Posts</Link>
+          <Link href={`/app/${workspace}/channels`}>Channels</Link>
           <Link href={`/app/${workspace}/settings`}>Team settings</Link>
         </nav>
         <nav aria-label="Switch workspace">

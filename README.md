@@ -39,3 +39,13 @@ For real email delivery, copy `.env.example` to `.env` for Compose. Set `APP_URL
 Open `/login` and sign in with the link from your inbox. Create a workspace at `/app`. The workspace owner can open Team settings and invite a teammate. The recipient signs in using the invited address and accepts from the workspace directory.
 
 To run the identity browser test, configure `DATABASE_URL` for a dedicated test database, apply migrations, build, run `pnpm exec playwright install chromium`, then run `pnpm exec playwright test`. The test server captures outbound Resend messages locally.
+
+## Discord publishing
+
+1. Create a Discord bot and install it in your test server. Grant View Channel and Send Messages in the test channel. Add Attach Files if you plan to publish images.
+2. Add `DISCORD_BOT_TOKEN` to the server environment. In `DISCORD_WORKSPACE_CHANNELS`, map a CadenceDesk workspace slug to allowed Discord channel IDs. For example, `{"studio-ab12cd34":["123456789012345678"]}`.
+3. Create the configured object storage bucket before uploading images. The local Compose endpoint is `http://localhost:9000` from the host and `http://storage:9000` from the containers.
+4. Connect the channel in Channels. In Posts, create a draft with text and an optional image, select the destinations, request approval and approve the revision. Schedule in UTC or use Publish now. The agenda shows the workspace time zone.
+5. Open the resulting Discord permalink from Posts. If the result is uncertain, check the destination in Discord before sending again.
+
+To run the publishing integration test, apply migrations to a dedicated database, run `pnpm build`, then run `node --test apps/worker/test/publishing.integration.mjs` with that database URL. The test starts a local Temporal server and intercepts Discord and storage requests.

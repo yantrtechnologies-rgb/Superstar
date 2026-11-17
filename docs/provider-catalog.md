@@ -1,6 +1,6 @@
 # Provider catalog
 
-Inventory from the brief, with known destination distinctions to verify. Research date 2026-11-17. [Postiz documentation index](https://docs.postiz.com/llms.txt) and [public channel navigation](https://postiz.com/pricing) are reference discovery sources. Official endpoint, scope, quota and approval research is pending for each row. Live evidence requires a permitted test destination, working credentials and a recorded provider response or permalink for each enabled publishing behavior.
+Inventory from the brief, with known destination distinctions to verify. Research date 2026-11-17. [Postiz documentation index](https://docs.postiz.com/llms.txt) and [public channel navigation](https://postiz.com/pricing) are reference discovery sources. Official endpoint, scope, quota and approval research is pending where the row has no source. Live evidence requires a permitted test destination, working credentials and a recorded provider response or permalink for each enabled publishing behavior.
 
 | Connector | Destination or behavior to verify |
 | --- | --- |
@@ -21,7 +21,7 @@ Inventory from the brief, with known destination distinctions to verify. Researc
 | Kick | Supported destination and write operation |
 | Twitch | Supported destination and write operation |
 | VK | User or community wall |
-| Discord | Bot installation and channel selection |
+| Discord | Server text channels. Operator bot grants gate discovery and publishing. [Create Message](https://docs.discord.com/developers/resources/message#create-message) supports the text, attachment and nonce contract. Live test bot evidence pending. |
 | Slack | Workspace authorization and channel selection |
 | Telegram | Bot and target chat or channel |
 | Mastodon | Instance URL, OAuth and instance limits |

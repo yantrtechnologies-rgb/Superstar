@@ -1,34 +1,66 @@
 import { NativeConnection, Worker } from '@temporalio/worker';
+import { Client, Connection } from '@temporalio/client';
+import { prisma } from '@cadencedesk/data';
 import { createServer } from 'node:http';
+import { setTimeout } from 'node:timers/promises';
+import { dispatchOutbox, publishDestination, reconcileInterrupted } from './publish';
 
-async function main() {
-  const connection = await NativeConnection.connect({
-    address: process.env.TEMPORAL_ADDRESS ?? 'localhost:7233',
-  });
-  try {
-    const worker = await Worker.create({
-      connection,
-      namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
-      taskQueue: 'cadencedesk',
-      activities: { probe: async () => 'ok' },
-    });
-    const server = createServer((_request, response) => {
-      const running = worker.getState() === 'RUNNING';
-      response.writeHead(running ? 200 : 503, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify({ status: running ? 'ready' : 'unavailable' }));
-    });
+async function dispatch(client: Client, stop: AbortSignal) {
+  while (!stop.aborted) {
     try {
-      server.listen(3002, '0.0.0.0');
-      await worker.run();
-    } finally {
-      server.close();
+      await reconcileInterrupted();
+      await dispatchOutbox(client);
+    } catch {
+      console.error(JSON.stringify({ event: 'publishing.outbox_poll_failed' }));
     }
-  } finally {
-    await connection.close();
+    try {
+      await setTimeout(2000, undefined, { signal: stop });
+    } catch {
+      if (!stop.aborted) throw new Error('Outbox polling was interrupted');
+    }
   }
 }
 
-void main().catch((error: unknown) => {
-  console.error('Worker startup failed', error);
+async function main() {
+  const address = process.env.TEMPORAL_ADDRESS ?? 'localhost:7233';
+  const namespace = process.env.TEMPORAL_NAMESPACE ?? 'default';
+  const connection = await NativeConnection.connect({ address });
+  try {
+    const clientConnection = await Connection.connect({ address });
+    try {
+      const client = new Client({ connection: clientConnection, namespace });
+      const worker = await Worker.create({
+        connection,
+        namespace,
+        taskQueue: 'cadencedesk',
+        workflowsPath: require.resolve('./workflows'),
+        activities: { publishDestination },
+      });
+      const server = createServer((_request, response) => {
+        const running = worker.getState() === 'RUNNING';
+        response.writeHead(running ? 200 : 503, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ status: running ? 'ready' : 'unavailable' }));
+      });
+      const stop = new AbortController();
+      const polling = dispatch(client, stop.signal);
+      try {
+        server.listen(3002, '0.0.0.0');
+        await worker.run();
+      } finally {
+        server.close();
+        stop.abort();
+        await polling;
+      }
+    } finally {
+      await clientConnection.close();
+    }
+  } finally {
+    await connection.close();
+    await prisma.$disconnect();
+  }
+}
+
+void main().catch(() => {
+  console.error(JSON.stringify({ event: 'publishing.worker_stopped' }));
   process.exitCode = 1;
 });

@@ -102,3 +102,39 @@ test('workspace commands reject unauthorized invitations and claims', async () =
     await prisma.$disconnect();
   }
 });
+
+test('compose, approve and schedule a post from the workspace on mobile', async ({ page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  await page.setViewportSize({ width: 390, height: 844 });
+  const email = `publisher-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Daybreak Studio');
+  const slug = path.split('/').at(-1);
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug } });
+  try {
+    await prisma.channel.create({
+      data: {
+        workspaceId: workspace.id, provider: 'discord', name: 'studio-news',
+        externalId: '123456789012345671', guildId: '123456789012345670',
+      },
+    });
+    await page.getByRole('link', { name: 'Posts', exact: true }).click();
+    await page.getByLabel('Post text', { exact: true }).fill('Tomorrow’s studio update');
+    await page.getByRole('button', { name: 'Create draft' }).click();
+    const draft = page.getByRole('article');
+    await draft.getByLabel('#studio-news').check();
+    await draft.getByRole('button', { name: 'Request approval' }).click();
+    await draft.getByRole('button', { name: 'Approve revision' }).click();
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60_000).toISOString().slice(0, 16);
+    await draft.getByLabel('Schedule time (UTC)').fill(tomorrow);
+    await draft.getByRole('button', { name: 'Schedule', exact: true }).click();
+    await expect(draft.getByText('#studio-news · scheduled')).toBeVisible();
+    await page.getByRole('link', { name: 'Agenda', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Publishing agenda' })).toBeVisible();
+    await expect(page.getByText('Tomorrow’s studio update')).toBeVisible();
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { email } });
+    await prisma.$disconnect();
+  }
+});
