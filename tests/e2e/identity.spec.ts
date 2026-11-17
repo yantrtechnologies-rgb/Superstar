@@ -437,3 +437,40 @@ test('workspace admins can issue a scoped API key and revoke it', async ({ page 
     await prisma.$disconnect();
   }
 });
+
+test('pricing and billing show configured limits only to the appropriate audience', async ({ browser, page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('link', { name: 'View plans' }).click();
+  await expect(page.getByRole('heading', { name: 'Plans and pricing' })).toBeVisible();
+  for (const plan of ['Free', 'Creator', 'Team', 'Agency']) {
+    await expect(page.getByRole('heading', { name: plan, exact: true })).toBeVisible();
+  }
+
+  const run = randomUUID();
+  const viewer = `billing-viewer-${run}@example.invalid`;
+  await signIn(page, `billing-owner-${run}@example.invalid`);
+  const workspace = await createWorkspace(page, 'Billing Studio');
+  await page.getByRole('link', { name: 'Usage and billing' }).click();
+  await expect(page.getByRole('heading', { name: 'Usage and billing' })).toBeVisible();
+  await expect(page.getByText('0 credits available')).toBeVisible();
+  await expect(page.getByText('1 · 3 planned limit')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Team settings' }).click();
+  await page.getByLabel('Email address').fill(viewer);
+  await page.getByLabel('Workspace role').selectOption('VIEWER');
+  await page.getByRole('button', { name: 'Send invitation' }).click();
+  await expect(page.getByRole('status')).toHaveText('Invitation sent.');
+
+  const invited = await browser.newPage();
+  try {
+    await signIn(invited, viewer);
+    await invited.getByRole('button', { name: 'Accept invitation' }).click();
+    await expect(invited).toHaveURL(workspace);
+    await expect(invited.getByRole('link', { name: 'Usage and billing' })).toHaveCount(0);
+    const denied = await invited.goto(workspace + '/billing');
+    expect(denied?.status()).toBe(404);
+  } finally {
+    await invited.close();
+  }
+});

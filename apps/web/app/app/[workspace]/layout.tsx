@@ -27,6 +27,8 @@ export default async function WorkspaceLayout({ children, params }: {
           <Link href={`/app/${workspace}/studio`}>AI Studio</Link>
           <Link href={`/app/${workspace}/automations`}>Automations</Link>
           <Link href={`/app/${workspace}/settings`}>Team settings</Link>
+          {(membership.role === 'OWNER' || membership.role === 'ADMIN') &&
+            <Link href={`/app/${workspace}/billing`}>Usage and billing</Link>}
         </nav>
         <nav aria-label="Switch workspace">
           <h2>Workspaces</h2>

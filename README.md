@@ -153,3 +153,9 @@ node apps/cli/dist/main.js draft --file campaign.txt
 ```
 
 Configure your MCP host to launch `node` with the absolute path to `apps/mcp/dist/main.js` as its argument and pass the three environment variables through the host's environment settings. Give the key the scopes needed for the tools you intend to use. For example, an agent that reads channel and post data needs only `channels:read` and `posts:read`. Launch one MCP process per workspace. A reviewer must approve the current revision before any client can schedule it. [MCP stdio transport](https://ts.sdk.modelcontextprotocol.io/v2/serving/stdio)
+
+## Pricing and workspace usage
+
+Open `/pricing` for the plan comparison. To display proposed limits, set `BILLING_PLAN_LIMITS` in the web process environment. Keys are `free`, `creator`, `team` and `agency`. For example, `{"free":{"limits":{"seats":3}}}` displays a proposed three-seat limit on Free. Omitted values show as TBD. These limits are informational.
+
+Workspace owners and admins can open **Usage and billing** for counts and the latest 20 AI credit ledger entries. Stripe Checkout, entitlements and the Customer Portal are pending.

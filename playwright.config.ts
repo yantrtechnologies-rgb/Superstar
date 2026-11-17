@@ -19,6 +19,7 @@ export default defineConfig({
     url: baseURL + '/health',
     env: {
       APP_URL: baseURL,
+      BILLING_PLAN_LIMITS: '{"free":{"limits":{"seats":3}}}',
       AUTH_URL: baseURL,
       AUTH_SECRET: 'playwright-only-secret-for-cadencedesk-identity',
       EMAIL_FROM: 'CadenceDesk Test <test@example.invalid>',

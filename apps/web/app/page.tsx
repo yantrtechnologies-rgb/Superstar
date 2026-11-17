@@ -10,7 +10,10 @@ export default function Home() {
       <p className="mt-6 max-w-xl text-lg leading-relaxed">
         Plan content, review drafts with clients, and schedule posts for each channel.
       </p>
-      <Link href="/login" className="primary mt-10 self-start">Sign in to CadenceDesk</Link>
+      <div className="mt-10 flex flex-wrap items-center gap-5">
+        <Link href="/login" className="primary">Sign in to CadenceDesk</Link>
+        <Link href="/pricing" className="font-semibold underline underline-offset-4">View plans</Link>
+      </div>
     </main>
   );
 }

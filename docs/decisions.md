@@ -85,3 +85,8 @@
 ## Partnership scope
 
 - The pinned reference retains marketplace data structures and README copy. The callable listing, offer, review and fulfillment path could not be verified. Defer partnership entities and UI until an evidenced reference workflow or an owner-approved standalone specification is available. Any paid placement flow requires distinct payment configuration and test-mode settlement evidence.
+
+## Billing checkpoint
+
+- Keep the four plan identities fixed and validate displayed plan limits at runtime. Missing prices and limits display as pending. Published pricing, purchase, subscription state and entitlement enforcement are separate follow-on work.
+- The workspace billing view requires owner or admin access and reads usage and recent credit activity from workspace-scoped records.
