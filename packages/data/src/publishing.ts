@@ -1,7 +1,8 @@
 import { Prisma, type PostState, type WorkspaceRole } from '@prisma/client';
 import { prisma } from './client';
 import { uploadImage } from './assets';
-import { discoverDiscordChannel } from './discord';
+import { ProviderConfigurationError, type ProviderId } from './provider-contract';
+import { getProvider, validateProviderPost } from './providers';
 import { canManageTeam, WorkspaceAccessError } from './workspaces';
 
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable };
@@ -20,16 +21,18 @@ async function requireScope(tx: Prisma.TransactionClient, userId: string, slug: 
   return member;
 }
 
-export async function connectDiscord(userId: string, slug: string, channelId: string) {
+export async function connectChannel(userId: string, slug: string, providerId: ProviderId, channelId: string) {
   const scoped = await requireScope(prisma, userId, slug);
   if (!canManageTeam(scoped.role)) throw new WorkspaceAccessError('You cannot connect channels.');
-  const channel = await discoverDiscordChannel(slug, channelId);
+  const provider = getProvider(providerId);
+  if (!provider) throw new ProviderConfigurationError('This provider is unavailable.');
+  const channel = await provider.discover(slug, channelId);
   return prisma.$transaction(async (tx) => {
     const { workspaceId, role } = await requireScope(tx, userId, slug);
     if (!canManageTeam(role)) throw new WorkspaceAccessError('You cannot connect channels.');
     await tx.channel.upsert({
-      where: { workspaceId_provider_externalId: { workspaceId, provider: 'discord', externalId: channelId } },
-      create: { workspaceId, provider: 'discord', externalId: channelId, ...channel },
+      where: { workspaceId_provider_externalId: { workspaceId, provider: providerId, externalId: channelId } },
+      create: { workspaceId, provider: providerId, externalId: channelId, ...channel },
       update: channel,
     });
     await tx.auditEvent.create({ data: { workspaceId, actorId: userId, action: 'channel.connected' } });
@@ -58,7 +61,7 @@ export function listPosts(userId: string, slug: string, scheduledOnly = false) {
 }
 
 export async function savePost(userId: string, slug: string, content: string, postId?: string, revision?: number, image?: Uint8Array<ArrayBuffer>) {
-  if (!content.trim() || content.length > 2000) throw new WorkspaceAccessError('Use 1–2,000 characters.');
+  if (!content.trim() || content.length > 4096) throw new WorkspaceAccessError('Use 1–4,096 characters.');
   const scoped = await requireScope(prisma, userId, slug);
   if (!canWritePosts(scoped.role)) throw new WorkspaceAccessError('You cannot edit drafts.');
   const uploaded = image ? await uploadImage(scoped.workspaceId, image) : null;
@@ -99,10 +102,17 @@ export async function transitionPost(
       await tx.approval.create({ data: { postId, revision, reviewerId: userId } });
     } else {
       const channelIds = [...new Set(targets)].sort();
-      const count = await tx.channel.count({ where: { workspaceId, id: { in: channelIds } } });
-      if (!count || count > 20 || count !== channelIds.length) {
+      const channels = await tx.channel.findMany({
+        where: { workspaceId, id: { in: channelIds } },
+        select: { provider: true },
+      });
+      if (!channels.length || channels.length > 20 || channels.length !== channelIds.length) {
         throw new WorkspaceAccessError('Choose available workspace channels.');
       }
+      const draft = await tx.postRevision.findUniqueOrThrow({
+        where: { postId_number: { postId, number: revision } },
+      });
+      for (const channel of channels) validateProviderPost(channel.provider, draft.content, Boolean(draft.assetId));
       await tx.postRevision.update({
         where: { postId_number: { postId, number: revision } }, data: { channelIds },
       });

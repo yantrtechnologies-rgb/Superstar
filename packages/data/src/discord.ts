@@ -1,59 +1,52 @@
+import { botToken, ProviderConfigurationError, retryAfter, type ProviderAdapter, type PublishingImage, type PublishResult } from './provider-contract';
+
 const api = 'https://discord.com/api/v10';
 
-export class DiscordConfigurationError extends Error {}
-
 function configuration(workspace: string, channelId: string) {
-  const token = process.env.DISCORD_BOT_TOKEN;
-  const encoded = process.env.DISCORD_WORKSPACE_CHANNELS;
-  if (!token || !encoded) throw new DiscordConfigurationError('The Discord bot requires operator configuration.');
-  let grants: unknown;
-  try {
-    grants = JSON.parse(encoded);
-  } catch {
-    throw new DiscordConfigurationError('Discord channel grants are invalid.');
-  }
-  if (typeof grants !== 'object' || grants === null || !Object.hasOwn(grants, workspace)) {
-    throw new DiscordConfigurationError('This channel is not enabled for the workspace.');
-  }
-  const channels = (grants as Record<string, unknown>)[workspace];
-  if (!/^\d{17,20}$/.test(channelId) || !Array.isArray(channels) || !channels.includes(channelId)) {
-    throw new DiscordConfigurationError('This channel is not enabled for the workspace.');
-  }
-  return { Authorization: `Bot ${token}` };
+  return { Authorization: `Bot ${botToken(discord, workspace, channelId)}` };
 }
 
-export async function discoverDiscordChannel(workspace: string, channelId: string) {
+export const discord: ProviderAdapter = {
+  name: 'Discord',
+  tokenEnv: 'DISCORD_BOT_TOKEN',
+  grantsEnv: 'DISCORD_WORKSPACE_CHANNELS',
+  destinationLabel: 'Server text channel ID',
+  destinationPattern: /^\d{17,20}$/,
+  textLimit: 2000,
+  imageCaptionLimit: 2000,
+  connectionHelp: 'Install the bot with View Channel and Send Messages. Grant Attach Files for image posts.',
+  discover: discoverDiscordChannel,
+  publish: sendDiscord,
+};
+
+async function discoverDiscordChannel(workspace: string, channelId: string) {
   const headers = configuration(workspace, channelId);
   const response = await fetch(`${api}/channels/${channelId}`, {
     headers,
     redirect: 'error',
     signal: AbortSignal.timeout(10_000),
   });
-  if (!response.ok) throw new DiscordConfigurationError('The bot cannot read that Discord channel.');
+  if (!response.ok) throw new ProviderConfigurationError('The bot cannot read that Discord channel.');
   const channel = await response.json() as { guild_id?: string; name?: string; type?: number };
   if (!channel.guild_id || !channel.name || channel.type !== 0 || !/^\d{17,20}$/.test(channel.guild_id)) {
-    throw new DiscordConfigurationError('Choose a server text channel.');
+    throw new ProviderConfigurationError('Choose a server text channel.');
   }
   return { name: channel.name, guildId: channel.guild_id };
 }
 
-export type DiscordResult =
-  | { kind: 'published'; externalId: string; permalink: string }
-  | { kind: 'retry'; delayMs: number }
-  | { kind: 'failed' | 'uncertain'; error: string };
-
-export async function sendDiscord(
+async function sendDiscord(
   workspace: string,
-  channel: { externalId: string; guildId: string },
+  channel: { externalId: string; guildId: string | null },
   nonce: string,
   content: string,
-  image?: { bytes: Uint8Array<ArrayBuffer>; type: string },
-): Promise<DiscordResult> {
+  image?: PublishingImage,
+): Promise<PublishResult> {
+  if (!channel.guildId) return { kind: 'failed', error: 'Reconnect the Discord channel.' };
   let headers;
   try {
     headers = configuration(workspace, channel.externalId);
   } catch (error) {
-    if (error instanceof DiscordConfigurationError) return { kind: 'failed', error: error.message };
+    if (error instanceof ProviderConfigurationError) return { kind: 'failed', error: error.message };
     throw error;
   }
 
@@ -75,8 +68,7 @@ export async function sendDiscord(
     });
     if (response.status === 429) {
       const { retry_after } = await response.json() as { retry_after?: number };
-      const seconds = typeof retry_after === 'number' && Number.isFinite(retry_after) ? retry_after : 60;
-      return { kind: 'retry', delayMs: Math.max(1000, Math.ceil(seconds * 1000)) };
+      return retryAfter(retry_after);
     }
     if (response.status >= 500) {
       return { kind: 'uncertain', error: 'Discord returned a server error. Check the channel before retrying.' };

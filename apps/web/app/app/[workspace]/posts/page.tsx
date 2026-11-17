@@ -1,4 +1,4 @@
-import { canApprovePosts, canWritePosts, findMembership, listChannels, listPosts } from '@cadencedesk/data';
+import { canApprovePosts, canWritePosts, findMembership, getProvider, listChannels, listPosts } from '@cadencedesk/data';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireUser } from '../../../../lib/require-user';
@@ -7,6 +7,7 @@ import { approvePostAction, cancelPostAction, savePostAction, schedulePostAction
 const messages: Record<string, string> = {
   saved: 'Post updated.',
   invalid: 'Check the text, UTC time and selected destinations.',
+  provider: 'Check the text length and attachment limits for every selected destination.',
   image: 'Use a PNG or JPEG up to 2 MiB. If the file is valid, ask your operator to check object storage.',
   unavailable: 'That action is unavailable. Check the post status, approval and your workspace access.',
 };
@@ -42,7 +43,7 @@ export default async function Posts({ params, searchParams }: {
           <form action={savePostAction} className="identity-form">
             <PostFields workspace={workspace} />
             <label htmlFor="new-content">Post text</label>
-            <textarea id="new-content" name="content" maxLength={2000} rows={4} required />
+            <textarea id="new-content" name="content" maxLength={4096} rows={4} required />
             <label htmlFor="new-image">Optional image (PNG or JPEG, up to 2 MiB)</label>
             <input id="new-image" type="file" name="image" accept="image/png,image/jpeg" />
             <button type="submit">Create draft</button>
@@ -62,7 +63,7 @@ export default async function Posts({ params, searchParams }: {
                 <form action={savePostAction} className="identity-form">
                   <PostFields {...fields} />
                   <label htmlFor={post.id}>Post text</label>
-                  <textarea id={post.id} name="content" maxLength={2000} rows={4} defaultValue={content} required />
+                  <textarea id={post.id} name="content" maxLength={4096} rows={4} defaultValue={content} required />
                   <label htmlFor={`image-${post.id}`}>Optional replacement image</label>
                   <input id={`image-${post.id}`} type="file" name="image" accept="image/png,image/jpeg" />
                   <button type="submit">Save new revision</button>
@@ -78,9 +79,19 @@ export default async function Posts({ params, searchParams }: {
                   <PostFields {...fields} />
                   <fieldset>
                     <legend>Destinations</legend>
-                    {channels.map((channel) => <label key={channel.id} className="channel-choice">
-                      <input type="checkbox" name="channel" value={channel.id} /> #{channel.name}
-                    </label>)}
+                    {channels.map((channel) => {
+                      const adapter = getProvider(channel.provider);
+                      return (
+                        <label key={channel.id} className="channel-choice">
+                          <input type="checkbox" name="channel" value={channel.id} />
+                          #{channel.name}
+                          {adapter && <small className="block">{
+                            `${adapter.name} · ${adapter.textLimit} characters · ${adapter.imageCaptionLimit
+                              ? `${adapter.imageCaptionLimit} with image` : 'text only'}`
+                          }</small>}
+                        </label>
+                      );
+                    })}
                   </fieldset>
                   <button type="submit">Request approval</button>
                 </form>
@@ -107,7 +118,7 @@ export default async function Posts({ params, searchParams }: {
                     <li key={destination.id}>
                       <span>#{destination.channel.name} · {destination.state.toLowerCase()}</span>
                       {destination.error && <p>{destination.error}</p>}
-                      {destination.permalink && <a href={destination.permalink}>Open in Discord</a>}
+                      {destination.permalink && <a href={destination.permalink}>Open in {getProvider(destination.channel.provider)?.name ?? 'provider'}</a>}
                     </li>
                   ))}
                 </ul>

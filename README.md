@@ -49,3 +49,9 @@ To run the identity browser test, configure `DATABASE_URL` for a dedicated test 
 5. Open the resulting Discord permalink from Posts. If the result is uncertain, check the destination in Discord before sending again.
 
 To run the publishing integration test, apply migrations to a dedicated database, run `pnpm build`, then run `node --test apps/worker/test/publishing.integration.mjs` with that database URL. The test starts a local Temporal server and intercepts Discord and storage requests.
+
+## Telegram and Slack
+
+- Telegram uses `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WORKSPACE_CHATS`. Add the bot to the target channel as an administrator with posting rights, or to a supergroup where it can send messages and photos. Map the workspace slug to a list of numeric channel or supergroup IDs as strings. The composer supports text and a single image with a caption. [Telegram Bot API](https://core.telegram.org/bots/api)
+- Slack uses `SLACK_BOT_TOKEN` and `SLACK_WORKSPACE_CHANNELS`. Install a bot with `chat:write` and the applicable `channels:read` or `groups:read` scope, invite it into the channel, then grant the channel ID to the workspace. The composer supports text. If Slack confirms delivery but cannot return a permalink, CadenceDesk keeps the published timestamp. [Slack publishing](https://docs.slack.dev/reference/methods/chat.postMessage/) · [Slack discovery](https://docs.slack.dev/reference/methods/conversations.info/)
+- Restart the web and worker with the updated environment, then connect or refresh the destination in Channels. Grants are rechecked when a scheduled post runs.

@@ -1,7 +1,7 @@
 'use server';
 
 import {
-  AssetStorageError, cancelPost, connectDiscord, DiscordConfigurationError, imageLimit, savePost, schedulePost,
+  AssetStorageError, cancelPost, connectChannel, ProviderConfigurationError, imageLimit, providerIds, providers, savePost, schedulePost,
   transitionPost, WorkspaceAccessError,
 } from '@cadencedesk/data';
 import { redirect } from 'next/navigation';
@@ -21,7 +21,7 @@ async function run(form: FormData, page: 'posts' | 'channels', command: (actor: 
   } catch (error) {
     if (error instanceof z.ZodError) status = 'invalid';
     else if (error instanceof WorkspaceAccessError) status = 'unavailable';
-    else if (error instanceof DiscordConfigurationError) status = 'discord';
+    else if (error instanceof ProviderConfigurationError) status = 'provider';
     else if (error instanceof AssetStorageError) status = 'image';
     else throw error;
   }
@@ -32,13 +32,17 @@ function postFields(form: FormData) {
   return post.parse({ postId: form.get('postId'), revision: form.get('revision') });
 }
 
-export async function connectDiscordAction(form: FormData) {
-  await run(form, 'channels', (actor, slug) => connectDiscord(actor, slug, z.string().regex(/^\d{17,20}$/).parse(form.get('channel'))));
+export async function connectChannelAction(form: FormData) {
+  await run(form, 'channels', (actor, slug) => {
+    const provider = z.enum(providerIds).parse(form.get('provider'));
+    const channel = z.string().trim().regex(providers[provider].destinationPattern).parse(form.get('channel'));
+    return connectChannel(actor, slug, provider, channel);
+  });
 }
 
 export async function savePostAction(form: FormData) {
   await run(form, 'posts', async (actor, slug) => {
-    const content = z.string().trim().min(1).max(2000).parse(form.get('content'));
+    const content = z.string().trim().min(1).max(4096).parse(form.get('content'));
     const current = form.has('postId') ? postFields(form) : null;
     const file = form.get('image');
     if (file instanceof File && file.size > imageLimit) throw new AssetStorageError('Image exceeds 2 MiB.');

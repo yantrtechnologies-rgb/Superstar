@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { prisma, readImage, sendDiscord, AssetStorageError, type DiscordResult } from '@cadencedesk/data';
+import { getProvider, prisma, readImage, validateProviderPost, AssetStorageError, ProviderConfigurationError, type PublishResult } from '@cadencedesk/data';
 import { Client, WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
 
 export async function publishDestination(id: string): Promise<number | null> {
@@ -38,16 +38,18 @@ export async function publishDestination(id: string): Promise<number | null> {
   }
   const { destination, revision, approval, attempt } = claim;
   const valid = revision?.channelIds.includes(destination.channelId) && approval && destination.revision === destination.post.revision
-    && destination.channel.workspaceId === destination.post.workspaceId && destination.channel.provider === 'discord';
+    && destination.channel.workspaceId === destination.post.workspaceId;
   const nonce = createHash('sha256').update(id).digest('base64url').slice(0, 25);
-  let result: DiscordResult = { kind: 'failed', error: 'The approved revision or destination is unavailable.' };
-  if (valid && revision) {
+  const provider = getProvider(destination.channel.provider);
+  let result: PublishResult = { kind: 'failed', error: 'The approved revision or destination is unavailable.' };
+  if (valid && revision && provider) {
     const asset = revision.asset;
     try {
+      validateProviderPost(destination.channel.provider, revision.content, Boolean(asset));
       const image = asset ? { bytes: await readImage(asset, destination.post.workspaceId), type: asset.type } : undefined;
-      result = await sendDiscord(destination.post.workspace.slug, destination.channel, nonce, revision.content, image);
+      result = await provider.publish(destination.post.workspace.slug, destination.channel, nonce, revision.content, image);
     } catch (error) {
-      if (!(error instanceof AssetStorageError)) throw error;
+      if (!(error instanceof AssetStorageError || error instanceof ProviderConfigurationError)) throw error;
       result = { kind: 'failed', error: error.message };
     }
   }
@@ -58,7 +60,7 @@ export async function publishDestination(id: string): Promise<number | null> {
       ? { state: 'UNCERTAIN' as const, error: result.error }
       : retryDelay !== null
         ? { state: 'SCHEDULED' as const, error: null, notBefore: new Date(Date.now() + retryDelay) }
-        : { state: 'FAILED' as const, error: result.kind === 'retry' ? 'Discord rate limit retries exhausted.' : result.error };
+        : { state: 'FAILED' as const, error: result.kind === 'retry' ? 'Provider rate limit retries exhausted.' : result.error };
   await prisma.$transaction(async (tx) => {
     const saved = await tx.destination.updateMany({
       where: { id, state: 'PUBLISHING', startedAt: destination.startedAt },
@@ -67,7 +69,7 @@ export async function publishDestination(id: string): Promise<number | null> {
     if (!saved.count) return;
     await tx.publishAttempt.update({
       where: { id: attempt.id },
-      data: { state: retryDelay !== null ? 'FAILED' : outcome.state, error: retryDelay !== null ? 'Discord rate limit.' : outcome.error, finishedAt: new Date() },
+      data: { state: retryDelay !== null ? 'FAILED' : outcome.state, error: retryDelay !== null ? 'Provider rate limit.' : outcome.error, finishedAt: new Date() },
     });
   });
   return retryDelay;
@@ -98,7 +100,7 @@ export async function dispatchOutbox(client: Client) {
 }
 
 export async function reconcileInterrupted() {
-  const error = 'Publishing stopped before the result was saved. Check Discord before sending again.';
+  const error = 'Publishing stopped before the result was saved. Check the destination before sending again.';
   await prisma.$transaction(async (tx) => {
     const abandoned = await tx.destination.updateManyAndReturn({
       where: { state: 'PUBLISHING', startedAt: { lt: new Date(Date.now() - 5 * 60_000) } },

@@ -27,3 +27,9 @@
 - PostgreSQL commits destinations and outbox rows atomically. Temporal uses one stable workflow ID per destination. It backs off confirmed rate limits. A crash or ambiguous external result moves the destination to uncertain, where the operator can check Discord before sending again.
 - The draft form relays one PNG or JPEG to a signed PUT URL. It stores the original under the workspace key and checks size, signature and checksum before publication. Automatic cleanup for unreferenced objects and media renditions are pending.
 - The first calendar surface is an agenda. The schedule input is UTC. The agenda renders in the workspace time zone. Month and week views, rescheduling and manual destination retries remain open.
+
+## Connector parity checkpoint
+
+- Discord, Telegram and Slack use a typed provider contract for discovery, validation and publication with operator-managed bot credentials. Reconnecting refreshes destination metadata. Workspace grants are checked both on connection and before publishing.
+- The first Telegram path handles channel and supergroup text plus a single image. The first Slack path handles text with previews disabled. Telegram and Slack ambiguous writes are marked uncertain. Slack permalink lookup is a separate read after a confirmed write.
+- Account OAuth, token refresh, revocation, provider analytics, per-channel overrides and the other 32 connector variants remain open.
