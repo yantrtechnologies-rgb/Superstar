@@ -36,6 +36,7 @@ jobs:
       - run: pnpm build
       - run: pnpm db:migrate
       - run: node --test apps/api/test/workspace-api.integration.mjs
+      - run: node --test apps/mcp/test/clients.integration.mjs
       - name: Install media tools
         run: |
           sudo apt-get update

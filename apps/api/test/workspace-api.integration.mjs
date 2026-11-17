@@ -1,50 +1,12 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { once } from 'node:events';
-import { createServer } from 'node:net';
-import { setTimeout } from 'node:timers/promises';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
 import {
   createApiKey, createWorkspace, listApiKeys, prisma, revokeApiKey, savePost, transitionPost,
 } from '@cadencedesk/data';
 import { apiChannelPage, apiPostPage, apiPostResource } from '@cadencedesk/contracts';
 
-async function startApi() {
-  const socket = createServer();
-  await new Promise((resolve) => socket.listen(0, '127.0.0.1', resolve));
-  const port = socket.address().port;
-  await new Promise((resolve) => socket.close(resolve));
-  const baseUrl = new URL(`http://127.0.0.1:${port}`);
-  const entry = fileURLToPath(new URL('../dist/main.js', import.meta.url));
-  const child = spawn(process.execPath, [entry], {
-    env: { ...process.env, PORT: String(port), API_LISTEN_HOST: '127.0.0.1', API_REQUESTS_PER_MINUTE: '20' },
-    stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
-  });
-  let logs = '';
-  const capture = (chunk) => { logs = (logs + String(chunk)).slice(-4000); };
-  child.stdout.on('data', capture);
-  child.stderr.on('data', capture);
-  const close = async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    const exit = once(child, 'exit');
-    child.kill();
-    await exit;
-  };
-  for (let attempt = 0; attempt < 60; attempt++) {
-    if (child.exitCode !== null) break;
-    try {
-      const ready = await fetch(new URL('/health/ready', baseUrl));
-      if (ready.ok) return { baseUrl, close };
-    } catch {
-      // Wait for local API startup.
-    }
-    await setTimeout(100);
-  }
-  await close();
-  throw new Error('The API did not become ready. ' + logs);
-}
+import { startApi } from './api-fixture.mjs';
 
 test('workspace REST API scopes requests, enforces approval and rate limits, and revokes keys', { timeout: 45_000 }, async () => {
   const run = randomUUID();

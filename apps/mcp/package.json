@@ -1,0 +1,24 @@
+{
+  "name": "@cadencedesk/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/main.js"
+  },
+  "bin": {
+    "cadencedesk-mcp": "dist/main.js"
+  },
+  "dependencies": {
+    "@cadencedesk/contracts": "workspace:*",
+    "@cadencedesk/sdk": "workspace:*",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@cadencedesk/data": "workspace:*"
+  }
+}

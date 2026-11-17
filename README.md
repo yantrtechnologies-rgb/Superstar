@@ -130,3 +130,26 @@ Example using a locally running API
 curl -H "Authorization: Bearer $CADENCEDESK_API_KEY" \
   "http://localhost:3001/v1/workspaces/$CADENCEDESK_WORKSPACE/posts?limit=25"
 ```
+
+## SDK, CLI and local MCP
+
+Build the workspace with `pnpm build`. Run the clients on Node 22 or later. Configure `CADENCEDESK_WORKSPACE` and `CADENCEDESK_API_KEY` in the process environment. Set `CADENCEDESK_API_URL` if the API runs outside `http://localhost:3001`. Use HTTPS for remote APIs. For a trusted private HTTP network, set `CADENCEDESK_ALLOW_HTTP=true`.
+
+Workspace TypeScript packages can depend on `@cadencedesk/sdk` using `workspace:*`.
+
+```ts
+import { clientFromEnvironment } from '@cadencedesk/sdk';
+
+const client = clientFromEnvironment();
+const { items, nextOffset } = await client.listPosts({ limit: 25 });
+```
+
+Run the CLI from the repository root.
+
+```sh
+node apps/cli/dist/main.js --help
+node apps/cli/dist/main.js channels
+node apps/cli/dist/main.js draft --file campaign.txt
+```
+
+Configure your MCP host to launch `node` with the absolute path to `apps/mcp/dist/main.js` as its argument and pass the three environment variables through the host's environment settings. Give the key the scopes needed for the tools you intend to use. For example, an agent that reads channel and post data needs only `channels:read` and `posts:read`. Launch one MCP process per workspace. A reviewer must approve the current revision before any client can schedule it. [MCP stdio transport](https://ts.sdk.modelcontextprotocol.io/v2/serving/stdio)

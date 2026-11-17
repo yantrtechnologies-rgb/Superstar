@@ -1,0 +1,15 @@
+{
+  "name": "@cadencedesk/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@cadencedesk/contracts": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

@@ -79,4 +79,5 @@
 - Owners and admins issue expiring keys with explicit endpoint scopes. The database stores a digest and prefix. The key resolves only for its bound workspace and while the issuer remains an owner or admin.
 - The NestJS API shares Zod contracts with the web app and uses the existing publishing commands. Draft creation can bind a request ID to the original draft. The review and scheduling endpoints preserve revision approval and the same transactional outbox.
 - Rate limiting uses an atomic Redis counter for each key and minute. API readiness requires PostgreSQL and Redis. A request receives 503 when the rate-limit cache is unavailable.
-- SDK, CLI, MCP, embedded onboarding and the partnership workflow remain pending.
+- The workspace TypeScript SDK validates shared REST contracts. The CLI emits JSON, and the local stdio MCP server binds to one workspace and one scoped key. Both use the same SDK and server approval checks.
+- Hosted MCP, public SDK distribution, embedded onboarding and the partnership workflow remain pending.

@@ -1,0 +1,16 @@
+{
+  "name": "@cadencedesk/cli",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/main.js"
+  },
+  "bin": {
+    "cadencedesk": "dist/main.js"
+  },
+  "dependencies": {
+    "@cadencedesk/sdk": "workspace:*"
+  }
+}
