@@ -100,3 +100,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .channel-choice { display: block; margin-block: .5rem; }
 .channel-choice input { width: auto; }
+
+.review-preview {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid #dddfd7;
+  border-radius: .75rem;
+}
+.review-preview img { max-width: 100%; border-radius: .5rem; }
+.review-comments { display: grid; gap: .75rem; }
+.review-comments li { padding: .75rem; background: #f6f5f0; border-radius: .5rem; overflow-wrap: anywhere; }

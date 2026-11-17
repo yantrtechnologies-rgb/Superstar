@@ -1,5 +1,6 @@
 import { Prisma, type PostState, type WorkspaceRole } from '@prisma/client';
 import { prisma } from './client';
+import { findNextPostingSlot } from './next-slot';
 import { uploadImage } from './assets';
 import { ProviderConfigurationError, type ProviderId } from './provider-contract';
 import { getProvider, validateProviderPost } from './providers';
@@ -47,16 +48,22 @@ export function listChannels(userId: string, slug: string) {
   });
 }
 
-export function listPosts(userId: string, slug: string, scheduledOnly = false) {
+export function listPosts(userId: string, slug: string, scheduledOnly = false, groupId?: string) {
   return prisma.post.findMany({
     where: {
       workspace: { slug, memberships: { some: { userId } } },
       ...(scheduledOnly ? { scheduledAt: { not: null } } : {}),
+      ...(groupId ? { destinations: { some: { channel: { clientGroupId: groupId } } } } : {}),
     },
     orderBy: scheduledOnly ? { scheduledAt: 'asc' } : { createdAt: 'desc' },
     include: {
       revisions: { orderBy: { number: 'desc' }, take: 1, include: { asset: { select: { type: true } } } },
       destinations: { include: { channel: true }, orderBy: { id: 'asc' } },
+      reviewLinks: {
+        orderBy: { expiresAt: 'desc' },
+        select: { id: true, revision: true, expiresAt: true, revokedAt: true },
+      },
+      editorialComments: { orderBy: { createdAt: 'asc' }, select: { id: true, action: true, body: true, revision: true } },
     },
   });
 }
@@ -125,10 +132,10 @@ export async function transitionPost(
 }
 
 export async function schedulePost(
-  userId: string, slug: string, postId: string, revision: number, targets: string[], scheduledAt: Date,
+  userId: string, slug: string, postId: string, revision: number, targets: string[], requestedAt: Date | 'next',
 ) {
   const channelIds = [...new Set(targets)].sort();
-  if (channelIds.length < 1 || channelIds.length > 20 || !Number.isFinite(scheduledAt.getTime())) {
+  if (channelIds.length < 1 || channelIds.length > 20 || (requestedAt !== 'next' && !Number.isFinite(requestedAt.getTime()))) {
     throw new WorkspaceAccessError('Select between 1 and 20 destinations and a valid date.');
   }
   return prisma.$transaction(async (tx) => {
@@ -141,6 +148,7 @@ export async function schedulePost(
     if (channels !== channelIds.length || !approval || approval.version.channelIds.join() !== channelIds.join()) {
       throw new WorkspaceAccessError('The approval or selected channels are unavailable.');
     }
+    const scheduledAt = requestedAt === 'next' ? await findNextPostingSlot(tx, workspaceId, channelIds) : requestedAt;
     const changed = await tx.post.updateMany({
       where: { id: postId, workspaceId, state: 'APPROVED', revision },
       data: { state: 'SCHEDULED', scheduledAt },

@@ -1,4 +1,5 @@
 import { canManageTeam, findMembership, getProvider, listChannels, providerIds, providers } from '@cadencedesk/data';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireUser } from '../../../../lib/require-user';
 import { connectChannelAction, disconnectLinkedInAction, startLinkedInAction } from '../publishing-actions';
@@ -25,6 +26,7 @@ export default async function Channels({ params, searchParams }: {
   return (
     <>
       <h1>Channels</h1>
+      <Link href={`/app/${workspace}/channels/organization`}>Channel groups and posting slots</Link>
       {status && Object.hasOwn(messages, status) && <p role="status">{messages[status]}</p>}
       {channels.length ? (
         <ul className="workspaces-list">

@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { test } from 'node:test';
 import {
-  cancelPost, connectChannel, createWorkspace, listChannels, prisma, savePost, schedulePost, transitionPost,
+  cancelPost, connectChannel, createWorkspace, listChannels, nextAvailableSlot, prisma, queueChannelMetric, savePost, schedulePost, transitionPost, workspaceMetrics,
 } from '@cadencedesk/data';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { fileURLToPath } from 'node:url';
 import { setTimeout } from 'node:timers/promises';
 import { dispatchOutbox, publishDestination, reconcileInterrupted } from '../dist/publish.js';
+import { collectChannelMetric, dispatchAnalytics } from '../dist/analytics.js';
 
 const ids = { guild: '123456789012345670', good: '123456789012345671', bad: '123456789012345672', chat: '-1001723456789', post: '123456789012345673' };
 
@@ -62,6 +63,7 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
   const { owner, workspace } = await createFixture();
   const storage = await startObjectStorage();
   const providerCalls = new Map();
+  let telegramMetricAvailable = true;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input);
@@ -71,6 +73,10 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
       if (url.pathname.endsWith('/getChat')) {
         assert.equal(JSON.parse(init.body).chat_id, Number(ids.chat));
         return Response.json({ ok: true, result: chat });
+      }
+      if (url.pathname.endsWith('/getChatMemberCount')) {
+        assert.equal(JSON.parse(init.body).chat_id, Number(ids.chat));
+        return telegramMetricAvailable ? Response.json({ ok: true, result: 0 }) : Response.json({ ok: false }, { status: 403 });
       }
       assert.ok(url.pathname.endsWith('/sendPhoto'));
       assert.equal(init.body.get('chat_id'), ids.chat);
@@ -118,7 +124,7 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
     const worker = await Worker.create({
       connection: env.nativeConnection, taskQueue: 'cadencedesk',
       workflowsPath: fileURLToPath(new URL('../dist/workflows.js', import.meta.url)),
-      activities: { publishDestination },
+      activities: { publishDestination, collectChannelMetric },
     });
     await worker.runUntil(async () => {
       const due = new Date(Date.now() + 1200);
@@ -156,6 +162,24 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
       const recovered = await prisma.destination.findUniqueOrThrow({ where: { id: canceledId }, include: { attempts: true } });
       assert.equal(recovered.state, 'UNCERTAIN');
       assert.equal(recovered.attempts[0].state, 'UNCERTAIN');
+
+      const telegram = channels.find(({ provider }) => provider === 'telegram');
+      const jobs = await Promise.all([
+        queueChannelMetric(owner.id, workspace.slug, telegram.id),
+        queueChannelMetric(owner.id, workspace.slug, telegram.id),
+      ]);
+      assert.equal(jobs[0].id, jobs[1].id);
+      await Promise.all([dispatchAnalytics(env.client), dispatchAnalytics(env.client)]);
+      await env.client.workflow.getHandle('metric-' + jobs[0].id).result();
+      await prisma.metricJob.update({ where: { id: jobs[0].id }, data: { bucket: new Date(Date.now() - 10 * 60_000) } });
+      telegramMetricAvailable = false;
+      const failed = await queueChannelMetric(owner.id, workspace.slug, telegram.id);
+      await dispatchAnalytics(env.client);
+      await env.client.workflow.getHandle('metric-' + failed.id).result();
+      const metrics = await workspaceMetrics(owner.id, workspace.slug, new Date(0));
+      const memberCount = metrics.find(({ id }) => id === telegram.id);
+      assert.equal(memberCount.metricJobs[0].state, 'UNAVAILABLE');
+      assert.deepEqual(memberCount.snapshots.map(({ count }) => count), [0]);
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -316,6 +340,64 @@ test('LinkedIn OAuth binds one-time state to its actor and refreshes encrypted c
     globalThis.fetch = originalFetch;
     await prisma.workspace.deleteMany({ where: { id: { in: [workspace.id, otherWorkspace.id] } } });
     await prisma.user.deleteMany({ where: { id: { in: [owner.id, wrongUser.id] } } });
+    await prisma.$disconnect();
+  }
+});
+
+test('shared posting slots handle DST gaps, repeated hours and occupied minutes', () => {
+  const tz = 'America/New_York';
+  const gap = [{ weekday: 7, minute: 150 }];
+  const nextReal = nextAvailableSlot([gap, gap], tz, new Date('2026-03-08T05:00:00Z'), new Set());
+  assert.equal(nextReal.toISOString(), '2026-03-15T06:30:00.000Z');
+  const repeated = [{ weekday: 7, minute: 90 }];
+  const first = nextAvailableSlot([repeated], tz, new Date('2026-11-01T04:00:00Z'), new Set());
+  assert.equal(first.toISOString(), '2026-11-01T05:30:00.000Z');
+  const occupied = new Set([Math.floor(first.getTime() / 60_000)]);
+  const next = nextAvailableSlot([repeated], tz, new Date('2026-11-01T04:00:00Z'), occupied);
+  assert.equal(next.toISOString(), '2026-11-08T06:30:00.000Z');
+});
+
+test('review link access expires, revokes, and closes after a change request', async () => {
+  const {
+    createReviewLink, revokeReviewLink, reviewPreview, respondToReview, WorkspaceAccessError,
+    createClientGroup, assignChannelGroup, savePostingSlot,
+  } = await import('@cadencedesk/data');
+  const owner = await prisma.user.create({ data: { email: 'review-link-' + crypto.randomUUID() + '@example.invalid' } });
+  const workspace = await createWorkspace(owner.id, 'Review gates', 'UTC');
+  const other = await createWorkspace(owner.id, 'Other client', 'UTC');
+  try {
+    const channel = await prisma.channel.create({ data: {
+      workspaceId: workspace.id, provider: 'discord', name: 'review-gate',
+      externalId: ids.good, guildId: ids.guild,
+    } });
+    await createClientGroup(owner.id, other.slug, 'Other group');
+    const otherGroup = await prisma.clientGroup.findFirstOrThrow({ where: { workspaceId: other.id } });
+    await assert.rejects(assignChannelGroup(owner.id, workspace.slug, channel.id, otherGroup.id), WorkspaceAccessError);
+    await assert.rejects(savePostingSlot(owner.id, other.slug, channel.id, 1, 540), WorkspaceAccessError);
+    const draft = await savePost(owner.id, workspace.slug, 'Review access fixture');
+    await transitionPost(owner.id, workspace.slug, draft.id, 1, 'IN_REVIEW', [channel.id]);
+
+    const expired = await createReviewLink(owner.id, workspace.slug, draft.id, 1, 1);
+    await prisma.reviewLink.updateMany({ where: { postId: draft.id }, data: { expiresAt: new Date(0) } });
+    assert.equal(await reviewPreview(expired), null);
+
+    const revoked = await createReviewLink(owner.id, workspace.slug, draft.id, 1, 7);
+    const link = await prisma.reviewLink.findFirstOrThrow({ where: { postId: draft.id, expiresAt: { gt: new Date() } } });
+    await assert.rejects(revokeReviewLink(owner.id, other.slug, link.id), WorkspaceAccessError);
+    await revokeReviewLink(owner.id, workspace.slug, link.id);
+    assert.equal(await reviewPreview(revoked), null);
+
+    const active = await createReviewLink(owner.id, workspace.slug, draft.id, 1, 7);
+    const sibling = await createReviewLink(owner.id, workspace.slug, draft.id, 1, 7);
+    await respondToReview(active, 'CHANGES', 'Update the launch date.');
+    assert.equal(await reviewPreview(active), null);
+    assert.equal(await reviewPreview(sibling), null);
+    const updated = await prisma.post.findUniqueOrThrow({ where: { id: draft.id }, include: { editorialComments: true } });
+    assert.equal(updated.state, 'DRAFT');
+    assert.equal(updated.editorialComments[0].body, 'Update the launch date.');
+  } finally {
+    await prisma.workspace.deleteMany({ where: { id: { in: [workspace.id, other.id] } } });
+    await prisma.user.delete({ where: { id: owner.id } });
     await prisma.$disconnect();
   }
 });

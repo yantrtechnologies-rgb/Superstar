@@ -2,10 +2,13 @@ import { canApprovePosts, canWritePosts, findMembership, getProvider, listChanne
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireUser } from '../../../../lib/require-user';
+import { ReviewLinkForm } from './review-link-form';
+import { revokeReviewLinkAction } from '../review-actions';
 import { approvePostAction, cancelPostAction, savePostAction, schedulePostAction, submitPostAction } from '../publishing-actions';
 
 const messages: Record<string, string> = {
   saved: 'Post updated.',
+  slot: 'No shared time was available in the next five weeks. Change the channel posting slots or choose a time manually.',
   invalid: 'Check the text, UTC time and selected destinations.',
   provider: 'Check the text length and attachment limits for every selected destination.',
   image: 'Use a PNG or JPEG up to 2 MiB. If the file is valid, ask your operator to check object storage.',
@@ -99,6 +102,34 @@ export default async function Posts({ params, searchParams }: {
               {canWrite && post.state === 'DRAFT' && !channels.length && (
                 <Link href={`/app/${workspace}/channels`}>Connect a channel before requesting approval</Link>
               )}
+              {canWrite && post.state === 'IN_REVIEW' && (
+                <ReviewLinkForm key={post.revision} workspace={workspace} postId={post.id} revision={post.revision} />
+              )}
+              {canWrite && post.reviewLinks.some((link) => link.revision === post.revision && !link.revokedAt && link.expiresAt > new Date()) && (
+                <ul className="workspaces-list" aria-label="Review links">
+                  {post.reviewLinks.filter((link) => link.revision === post.revision && !link.revokedAt && link.expiresAt > new Date()).map((link) => (
+                    <li key={link.id}>
+                      <span>Revision {link.revision} · Expires {link.expiresAt.toISOString().slice(0, 10)}</span>
+                      <form action={revokeReviewLinkAction}>
+                        <input type="hidden" name="workspace" value={workspace} />
+                        <input type="hidden" name="linkId" value={link.id} />
+                        <button type="submit">Revoke review link</button>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {post.editorialComments.length > 0 && (
+                <ul className="review-comments" aria-label="Client feedback">
+                  {post.editorialComments.map((comment) => (
+                    <li key={comment.id}>
+                      <span>Revision {comment.revision} · {comment.action === 'APPROVE' ? 'Client approved'
+                        : comment.action === 'CHANGES' ? 'Client requested changes' : 'Client comment'}</span>
+                      {comment.body && <p className="post-content">{comment.body}</p>}
+                    </li>
+                  ))}
+                </ul>
+              )}
               {canApprove && post.state === 'IN_REVIEW' && (
                 <form action={approvePostAction}><PostFields {...fields} /><button type="submit">Approve revision</button></form>
               )}
@@ -109,6 +140,7 @@ export default async function Posts({ params, searchParams }: {
                   <label htmlFor={`due-${post.id}`}>Schedule time (UTC)</label>
                   <input type="datetime-local" id={`due-${post.id}`} name="dueAt" />
                   <button type="submit" name="mode" value="schedule">Schedule</button>
+                  <button type="submit" name="mode" value="next">Use next shared slot</button>
                   <button type="submit" name="mode" value="now">Publish now</button>
                 </form>
               ) : <Link href={`/app/${workspace}/channels`}>Connect a channel to schedule this post</Link>)}

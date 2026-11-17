@@ -10,11 +10,13 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1170.0",
     "@aws-sdk/s3-request-presigner": "^3.1170.0",
-    "@prisma/client": "6.19.0"
+    "@prisma/client": "6.19.0",
+    "luxon": "^3.7.2"
   },
   "main": "dist/index.js",
   "types": "src/index.ts",
   "devDependencies": {
+    "@types/luxon": "^3.7.6",
     "prisma": "6.19.0"
   }
 }

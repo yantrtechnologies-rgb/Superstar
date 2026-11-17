@@ -1,7 +1,7 @@
 'use server';
 
 import {
-  AssetStorageError, beginLinkedInConnection, cancelPost, connectChannel, disconnectLinkedIn, ProviderConfigurationError, imageLimit, providerIds, providers, savePost, schedulePost,
+  AssetStorageError, beginLinkedInConnection, cancelPost, connectChannel, disconnectLinkedIn, ProviderConfigurationError, PostingSlotUnavailableError, imageLimit, providerIds, providers, savePost, schedulePost,
   transitionPost, WorkspaceAccessError,
 } from '@cadencedesk/data';
 import { redirect } from 'next/navigation';
@@ -20,6 +20,7 @@ async function run(form: FormData, page: 'posts' | 'channels', command: (actor: 
     await command(user.id, scope.data);
   } catch (error) {
     if (error instanceof z.ZodError) status = 'invalid';
+    else if (error instanceof PostingSlotUnavailableError) status = 'slot';
     else if (error instanceof WorkspaceAccessError) status = 'unavailable';
     else if (error instanceof ProviderConfigurationError) status = 'provider';
     else if (error instanceof AssetStorageError) status = 'image';
@@ -72,6 +73,7 @@ export async function schedulePostAction(form: FormData) {
   await run(form, 'posts', (actor, slug) => {
     const { postId, revision } = postFields(form);
     const channels = z.array(z.uuid()).min(1).max(20).parse(form.getAll('channel'));
+    if (form.get('mode') === 'next') return schedulePost(actor, slug, postId, revision, channels, 'next');
     const publishNow = form.get('mode') === 'now';
     const date = publishNow
       ? new Date()

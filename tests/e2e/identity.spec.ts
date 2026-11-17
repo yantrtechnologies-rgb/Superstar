@@ -167,3 +167,104 @@ test('connect and disconnect a LinkedIn profile through the OAuth callback', asy
     await prisma.$disconnect();
   }
 });
+
+test('client review stays bound to the draft revision and client group slots populate the agenda', async ({ browser, page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  const email = `review-owner-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Juniper Studio');
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
+  const client = await browser.newPage();
+  try {
+    await prisma.channel.create({
+      data: { workspaceId: workspace.id, provider: 'discord', name: 'juniper-news',
+        externalId: '123456789012345671', guildId: '123456789012345670' },
+    });
+    await page.goto(path + '/channels/organization');
+    await page.getByLabel('Client group name').fill('Juniper campaign');
+    await page.getByRole('button', { name: 'Create group' }).click();
+    await page.getByLabel('Client group', { exact: true }).selectOption({ label: 'Juniper campaign' });
+    await page.getByRole('button', { name: 'Save group' }).click();
+    await expect(page.getByRole('status')).toHaveText('Channel group saved.');
+    await page.getByLabel('Local time').fill('09:30');
+    await page.getByRole('button', { name: 'Add posting slot' }).click();
+    await expect(page.getByText('Monday 09:30')).toBeVisible();
+
+    await page.goto(path + '/posts');
+    await page.getByLabel('Post text', { exact: true }).fill('Original Juniper announcement');
+    await page.getByRole('button', { name: 'Create draft' }).click();
+    const post = page.getByRole('article');
+    const requestClientReview = async () => {
+      await post.getByLabel('#juniper-news').check();
+      await post.getByRole('button', { name: 'Request approval' }).click();
+      await post.getByRole('button', { name: 'Create client review link' }).click();
+      const input = post.getByLabel('Shareable review link');
+      await expect(input).toBeVisible();
+      return input.inputValue();
+    };
+    const first = await requestClientReview();
+    await client.goto(first);
+    await expect(client.getByText('Original Juniper announcement')).toBeVisible();
+    await client.getByLabel('Feedback').fill('Please mention the launch date.');
+    await client.getByRole('button', { name: 'Add comment' }).click();
+    await expect(client.getByText('Please mention the launch date.')).toBeVisible();
+    await client.getByRole('button', { name: 'Approve revision' }).click();
+    await expect(client.getByText('This revision is closed for review.')).toBeVisible();
+
+    await page.reload();
+    await expect(post.getByText('Revision 1 · Client approved')).toBeVisible();
+    await post.getByLabel('Post text').fill('Juniper launches next week.');
+    await post.getByRole('button', { name: 'Save new revision' }).click();
+    await expect(post.getByRole('heading', { name: 'draft · Revision 2' })).toBeVisible();
+    expect((await client.goto(first))?.status()).toBe(404);
+
+    const revised = await requestClientReview();
+    await client.goto(revised);
+    await client.getByLabel('Feedback').fill('The revised date looks right.');
+    await client.getByRole('button', { name: 'Approve revision' }).click();
+    await page.reload();
+    await post.getByRole('button', { name: 'Use next shared slot' }).click();
+    await expect(post.getByText('#juniper-news · scheduled')).toBeVisible();
+    await page.goto(path + '/calendar');
+    await page.getByLabel('Client group').selectOption({ label: 'Juniper campaign' });
+    await page.getByRole('button', { name: 'Filter agenda' }).click();
+    await expect(page.getByText('Juniper launches next week.')).toBeVisible();
+  } finally {
+    await client.close();
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { email } });
+    await prisma.$disconnect();
+  }
+});
+
+test('analytics distinguishes a recorded zero from unavailable metrics', async ({ page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  const email = `analytics-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Analytics Studio');
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
+  try {
+    await prisma.channel.create({
+      data: {
+        workspaceId: workspace.id, provider: 'telegram', externalId: '-1001723456789', name: 'Studio followers',
+        metricJobs: { create: {
+          bucket: new Date(), state: 'COLLECTED', snapshot: { create: { count: 0 } },
+        } },
+      },
+    });
+    await prisma.channel.create({
+      data: { workspaceId: workspace.id, provider: 'slack', externalId: 'C000000001', name: 'Team chat' },
+    });
+    await page.getByRole('link', { name: 'Analytics', exact: true }).click();
+    await expect(page.getByText('Members · 0', { exact: true })).toBeVisible();
+    await expect(page.getByText('Metrics are unavailable for this provider.')).toBeVisible();
+    await page.getByLabel('Date range').selectOption('7');
+    await page.getByRole('button', { name: 'Apply date range' }).click();
+    await expect(page).toHaveURL(/days=7/);
+    await expect(page.getByText('Members · 0', { exact: true })).toBeVisible();
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { email } });
+    await prisma.$disconnect();
+  }
+});

@@ -23,6 +23,7 @@ export default async function WorkspaceLayout({ children, params }: {
           <Link href={`/app/${workspace}/calendar`}>Agenda</Link>
           <Link href={`/app/${workspace}/posts`}>Posts</Link>
           <Link href={`/app/${workspace}/channels`}>Channels</Link>
+          <Link href={`/app/${workspace}/analytics`}>Analytics</Link>
           <Link href={`/app/${workspace}/settings`}>Team settings</Link>
         </nav>
         <nav aria-label="Switch workspace">

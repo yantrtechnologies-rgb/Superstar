@@ -2,6 +2,7 @@ import { NativeConnection, Worker } from '@temporalio/worker';
 import { Client, Connection } from '@temporalio/client';
 import { prisma } from '@cadencedesk/data';
 import { createServer } from 'node:http';
+import { collectChannelMetric, dispatchAnalytics } from './analytics';
 import { setTimeout } from 'node:timers/promises';
 import { dispatchOutbox, publishDestination, reconcileInterrupted } from './publish';
 
@@ -10,6 +11,7 @@ async function dispatch(client: Client, stop: AbortSignal) {
     try {
       await reconcileInterrupted();
       await dispatchOutbox(client);
+      await dispatchAnalytics(client);
     } catch {
       console.error(JSON.stringify({ event: 'publishing.outbox_poll_failed' }));
     }
@@ -34,7 +36,7 @@ async function main() {
         namespace,
         taskQueue: 'cadencedesk',
         workflowsPath: require.resolve('./workflows'),
-        activities: { publishDestination },
+        activities: { publishDestination, collectChannelMetric },
       });
       const server = createServer((_request, response) => {
         const running = worker.getState() === 'RUNNING';

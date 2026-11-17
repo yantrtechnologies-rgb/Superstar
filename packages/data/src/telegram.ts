@@ -4,7 +4,7 @@ type TelegramChat = { id?: number; type?: string; title?: string };
 type TelegramResponse<T> = { ok?: boolean; result?: T; error_code?: number; parameters?: { retry_after?: number } };
 type TelegramMessage = { message_id?: number; chat?: TelegramChat };
 
-function endpoint(workspace: string, destinationId: string, method: 'getChat' | 'sendMessage' | 'sendPhoto') {
+function endpoint(workspace: string, destinationId: string, method: 'getChat' | 'getChatMemberCount' | 'sendMessage' | 'sendPhoto') {
   const token = botToken(telegram, workspace, destinationId);
   if (!Number.isSafeInteger(Number(destinationId))) throw new ProviderConfigurationError('The Telegram destination ID is invalid.');
   if (!/^\d+:[A-Za-z0-9_-]+$/.test(token)) throw new ProviderConfigurationError('The Telegram bot token is invalid.');
@@ -72,3 +72,20 @@ export const telegram: BotProviderAdapter = {
     }
   },
 };
+
+export async function telegramMemberCount(workspace: string, destinationId: string) {
+  try {
+    const url = endpoint(workspace, destinationId, 'getChatMemberCount');
+    const response = await fetch(url, {
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: Number(destinationId) }),
+    });
+    const data = await response.json() as TelegramResponse<number>;
+    const count = data.result;
+    return response.ok && data.ok && typeof count === 'number' && Number.isInteger(count) && count >= 0 && count <= 2147483647
+      ? count : null;
+  } catch {
+    // Bot API URLs include the token. Reporting a generic unavailable state keeps it private.
+    return null;
+  }
+}

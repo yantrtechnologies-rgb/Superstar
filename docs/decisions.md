@@ -39,3 +39,10 @@
 - OAuth state expires after ten minutes, is stored as a hash, and is bound to the initiating CadenceDesk user and workspace. The callback consumes state before exchanging the code and rechecks workspace management permissions before storage.
 - Access and refresh tokens use AES-256-GCM with a random IV and workspace, channel and token-type bindings. A row lock serializes refreshes for each channel. On HTTP 401 the adapter attempts a refresh once if it has a usable refresh credential. Disconnect removes the local credential while preserving the channel and its publishing history.
 - The first LinkedIn connector supports public text posts for a member profile. It uses the self-serve Share on LinkedIn contract. Pages, document uploads, analytics and live app verification remain open.
+
+## Collaboration and insights checkpoint
+
+- Review links are scoped by a hashed bearer token to one post revision. They expire, can be revoked, and reveal only the selected revision and its destination labels, attachment and feedback for that link. A change request returns the post to draft and closes links for the revision. Internal approvals and client decisions share the same approval gate.
+- Channel groups organize the agenda. Workspace membership governs channel access. The external client link limits the review surface.
+- Shared posting slots use the workspace IANA time zone and skip occupied minutes. The search skips nonexistent spring-forward times and uses the earlier occurrence in a repeated fall-back hour.
+- A Telegram refresh creates a durable job per channel per five-minute window. Zero is a recorded measurement. Unsupported providers and unsuccessful refreshes display unavailable states. Scheduled imports, post-level analytics, exports, editorial assignments and group membership permissions remain pending.

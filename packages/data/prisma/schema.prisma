@@ -18,6 +18,7 @@ model Workspace {
   invitations Invitation[]
   auditEvents AuditEvent[]
 
+  clientGroups ClientGroup[]
   oauthStates OAuthState[]
   assets Asset[]
   channels Channel[]
@@ -139,6 +140,10 @@ model Channel {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   destinations Destination[]
   credential   ProviderCredential?
+  clientGroupId String? @db.Uuid @map("client_group_id")
+  clientGroup   ClientGroup? @relation(fields: [clientGroupId], references: [id], onDelete: SetNull)
+  postingSlots  PostingSlot[]
+  metricJobs    MetricJob[]
 
   @@unique([workspaceId, provider, externalId])
   @@map("channels")
@@ -152,6 +157,8 @@ model Post {
   createdAt   DateTime  @default(now()) @map("created_at")
   scheduledAt DateTime? @map("scheduled_at")
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  reviewLinks ReviewLink[]
+  editorialComments EditorialComment[]
   revisions   PostRevision[]
   destinations Destination[]
 
@@ -176,7 +183,9 @@ model PostRevision {
 model Approval {
   postId    String   @map("post_id") @db.Uuid
   revision  Int
-  reviewerId String @map("reviewer_id") @db.Uuid
+  reviewerId String? @map("reviewer_id") @db.Uuid
+  reviewLinkId String? @map("review_link_id") @db.Uuid
+  reviewLink ReviewLink? @relation(fields: [reviewLinkId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now()) @map("created_at")
   version PostRevision @relation(fields: [postId, revision], references: [postId, number], onDelete: Cascade)
 
@@ -267,4 +276,87 @@ model ProviderCredential {
   channel          Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
   @@map("provider_credentials")
+}
+
+model ReviewLink {
+  id        String    @id @default(uuid()) @db.Uuid
+  postId    String    @db.Uuid @map("post_id")
+  revision  Int
+  hash      String    @unique
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  approvals Approval[]
+  comments  EditorialComment[]
+
+  @@index([postId, revision])
+  @@map("review_links")
+}
+
+model EditorialComment {
+  id           String    @id @default(uuid()) @db.Uuid
+  postId       String    @db.Uuid @map("post_id")
+  revision     Int
+  reviewLinkId String    @db.Uuid @map("review_link_id")
+  action       String
+  body         String
+  createdAt    DateTime  @default(now()) @map("created_at")
+  post         Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reviewLink   ReviewLink @relation(fields: [reviewLinkId], references: [id], onDelete: Cascade)
+
+  @@index([postId, revision, createdAt])
+  @@map("editorial_comments")
+}
+
+model ClientGroup {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid @map("workspace_id")
+  name        String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channels    Channel[]
+
+  @@unique([workspaceId, name])
+  @@map("client_groups")
+}
+
+model PostingSlot {
+  id        String  @id @default(uuid()) @db.Uuid
+  channelId String  @db.Uuid @map("channel_id")
+  weekday   Int
+  minute    Int
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, weekday, minute])
+  @@map("posting_slots")
+}
+
+enum MetricJobState {
+  QUEUED
+  COLLECTED
+  UNAVAILABLE
+}
+
+model MetricJob {
+  id            String         @id @default(uuid()) @db.Uuid
+  channelId     String         @db.Uuid @map("channel_id")
+  bucket        DateTime
+  dispatchedAt  DateTime?      @map("dispatched_at")
+  state         MetricJobState @default(QUEUED)
+  error         String?
+  channel       Channel        @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  snapshot      MetricsSnapshot?
+
+  @@unique([channelId, bucket])
+  @@index([dispatchedAt, bucket])
+  @@map("metric_jobs")
+}
+
+model MetricsSnapshot {
+  id         String    @id @default(uuid()) @db.Uuid
+  jobId      String    @unique @db.Uuid @map("job_id")
+  count      Int
+  observedAt DateTime  @default(now()) @map("observed_at")
+  job        MetricJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("metrics_snapshots")
 }

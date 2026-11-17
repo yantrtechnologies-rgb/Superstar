@@ -63,3 +63,11 @@ To run the publishing integration test, apply migrations to a dedicated database
 3. As a workspace owner or admin, open Channels and choose **Authorize or reconnect LinkedIn**. Connect a member profile and approve a text post for it. This adapter publishes public member posts through the self-serve Share on LinkedIn API. [Member publishing contract](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/share-on-linkedin)
 
 LinkedIn issues refresh tokens to eligible apps. CadenceDesk refreshes when a token is available and asks the workspace to reconnect when authorization has expired or been rejected. Disconnect removes the stored tokens and keeps the channel history. [Programmatic refresh eligibility](https://learn.microsoft.com/en-us/linkedin/shared/authentication/programmatic-refresh-tokens)
+
+## Client review, groups and analytics
+
+In **Posts**, select destinations and request approval. Create a client review link with a one-, seven- or fourteen-day expiration, then copy it from the form. The client can preview that revision, comment, approve it or request changes without signing in. Revoke the link from the post when access is no longer needed. Editing creates a new revision and closes links to the previous one.
+
+In **Channels → Channel groups and posting slots**, create groups, assign channels and add weekly times in the workspace time zone. **Use next shared slot** searches for a time configured for every approved destination. The agenda can be filtered by client group.
+
+In **Analytics**, refresh a Telegram channel to import its current member count. The worker records observations and keeps the previous values when a refresh fails. The date selector filters observation history. [Telegram getChatMemberCount](https://core.telegram.org/bots/api#getchatmembercount)
