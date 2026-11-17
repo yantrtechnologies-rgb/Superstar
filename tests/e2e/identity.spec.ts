@@ -17,7 +17,7 @@ async function signIn(page: Page, email: string) {
   await page.getByLabel('Email address').fill(email);
   await page.getByRole('button', { name: 'Send sign-in link' }).click();
   await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeVisible();
-  const message = await capturedMail(email, 'Your CadenceDesk AI sign-in link');
+  const message = await capturedMail(email, 'Your Superstar sign-in link');
   const link = message?.text.match(/https?:\/\/\S+/)?.[0];
   if (!link) throw new Error('Sign-in email has no callback URL');
   await page.goto(link);
@@ -47,7 +47,7 @@ test('magic link, invitations, workspace switching, and tenant isolation', async
   await page.getByLabel('Workspace role').selectOption('REVIEWER');
   await page.getByRole('button', { name: 'Send invitation' }).click();
   await expect(page.getByRole('status')).toHaveText('Invitation sent.');
-  expect(await capturedMail(reviewer, 'CadenceDesk AI workspace invitation')).toBeDefined();
+  expect(await capturedMail(reviewer, 'Superstar workspace invitation')).toBeDefined();
 
   const client = await browser.newPage();
   try {
@@ -491,4 +491,73 @@ test('the public landing and workspace navigation fit desktop and mobile', async
   await menu.getByRole('link', { name: 'Agenda' }).click();
   await expect(menu.getByRole('link', { name: 'Agenda' })).toHaveAttribute('aria-current', 'page');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
+test('landing channel setup survives sign-in and opens Channels in a new workspace', async ({ page }) => {
+  const email = `connect-${randomUUID()}@example.invalid`;
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Connect your channels' }).click();
+  await expect(page).toHaveURL('/login?intent=channels');
+  await page.getByLabel('Email address').fill(email);
+  await page.getByRole('button', { name: 'Send sign-in link' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeVisible();
+  const message = await capturedMail(email, 'Your Superstar sign-in link');
+  const link = message?.text.match(/https?:\/\/\S+/)?.[0];
+  if (!link) throw new Error('Sign-in email has no callback URL');
+  await page.goto(link);
+  await expect(page).toHaveURL('/app?intent=channels');
+  await page.getByLabel('Workspace name').fill('Channel Setup Studio');
+  await page.getByRole('button', { name: 'Create workspace' }).click();
+  await expect(page.getByRole('heading', { name: 'Channels', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/app\/[^/]+\/channels$/);
+});
+
+test('Facebook and Instagram connections select accounts, reject replay and isolate workspaces', async ({ page }) => {
+  const { prisma, metaAccountChoices, saveMetaAccounts, WorkspaceAccessError } =
+    await import('../../packages/data/dist/index.js');
+  const email = `meta-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Meta Connections');
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
+  const owner = await prisma.user.findUniqueOrThrow({ where: { email } });
+  const outsider = await prisma.user.create({ data: { email: `outside-meta-${randomUUID()}@example.invalid` } });
+  let callbackUrl = '';
+  await page.route(/^https:\/\/www\.facebook\.com\/v[0-9]+\.0\/dialog\/oauth\?/, async (route) => {
+    const url = new URL(route.request().url());
+    const callback = new URL(url.searchParams.get('redirect_uri')!);
+    callback.searchParams.set('state', url.searchParams.get('state')!);
+    callback.searchParams.set('code', 'fixture-meta-code');
+    callbackUrl = callback.href;
+    await route.fulfill({ status: 303, headers: { Location: callback.href }, body: '' });
+  });
+  try {
+    for (const [kind, name] of [['Pages', 'Fieldwork Page'], ['Instagram', 'fieldwork.studio']]) {
+      await page.goto(path + '/channels');
+      await page.getByRole('button', { name: 'Continue with Facebook for ' + kind, exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Connect selected accounts' })).toBeVisible();
+      const selection = new URL(page.url()).searchParams.get('selection')!;
+      await expect(metaAccountChoices(outsider.id, workspace.slug, selection)).rejects.toBeInstanceOf(WorkspaceAccessError);
+      await expect(metaAccountChoices(owner.id, 'wrong-workspace', selection)).rejects.toBeInstanceOf(WorkspaceAccessError);
+      expect(await page.content()).not.toContain('fixture-page-token');
+      await page.getByLabel(name, { exact: true }).check();
+      await page.getByRole('button', { name: 'Connect selected accounts' }).click();
+      await expect(page.getByRole('status')).toHaveText('Channel connected.');
+      const provider = kind === 'Pages' ? 'facebook' : 'instagram';
+      const channel = await prisma.channel.findFirstOrThrow({ where: { workspaceId: workspace.id, provider }, include: { credential: true } });
+      expect(channel.credential!.accessToken).toMatch(/^v1\./);
+      expect(channel.credential!.accessToken).not.toContain('fixture-page-token');
+      await expect(saveMetaAccounts(owner.id, workspace.slug, selection, [channel.externalId])).rejects.toBeInstanceOf(WorkspaceAccessError);
+      await page.goto(callbackUrl);
+      await expect(page).toHaveURL('/app?status=oauth-invalid');
+      await page.goto(path + '/channels');
+      await page.getByRole('button', { name: 'Disconnect ' + name, exact: true }).click();
+      await expect(page.getByRole('status')).toHaveText('Account disconnected from this workspace.');
+      expect(await prisma.providerCredential.count({ where: { channelId: channel.id } })).toBe(0);
+    }
+    expect(await prisma.channel.count({ where: { workspaceId: workspace.id } })).toBe(2);
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.deleteMany({ where: { id: { in: [owner.id, outsider.id] } } });
+    await prisma.$disconnect();
+  }
 });

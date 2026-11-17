@@ -39,7 +39,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { logger: new ConsoleLogger({ json: true }) });
   app.enableShutdownHooks();
   app.getHttpAdapter().getInstance().disable('x-powered-by');
-  const openApi = new DocumentBuilder().setTitle('CadenceDesk API').setVersion('1.0')
+  const openApi = new DocumentBuilder().setTitle('Superstar API').setVersion('1.0')
     .addBearerAuth({ type: 'http', scheme: 'bearer', description: 'Workspace API key' }, 'WorkspaceKey')
     .build();
   SwaggerModule.setup('docs', app, () => SwaggerModule.createDocument(app, openApi));

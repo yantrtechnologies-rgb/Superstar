@@ -12,24 +12,26 @@ const messages: Record<string, string> = {
   'invitation-unavailable': 'This invitation is unavailable for your account.',
 };
 
-export default async function WorkspaceDirectory({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
-  const user = await requireUser();
-  const [memberships, invitations, { status }] = await Promise.all([
+export default async function WorkspaceDirectory({ searchParams }: { searchParams: Promise<{ status?: string; intent?: string }> }) {
+  const { status, intent } = await searchParams;
+  const connecting = intent === 'channels';
+  const user = await requireUser(connecting ? '/login?intent=channels' : '/login');
+  const [memberships, invitations] = await Promise.all([
     listMemberships(user.id),
     listInvitations(user.email),
-    searchParams,
   ]);
   return (
     <main className="identity-shell workspace-directory">
-      <Link className="wordmark" href="/">CadenceDesk AI</Link>
+      <Link className="wordmark" href="/">Superstar</Link>
       <h1>Your workspaces</h1>
       <p>{user.email}</p>
+      {connecting && <p>Choose a workspace to connect your channels.</p>}
       {status && Object.hasOwn(messages, status) && <p role="status">{messages[status]}</p>}
       {memberships.length ? (
         <ul className="workspaces-list">
           {memberships.map(({ workspace, role }) => (
             <li key={workspace.id}>
-              <Link href={`/app/${workspace.slug}`}>{workspace.name}</Link>
+              <Link href={`/app/${workspace.slug}${connecting ? '/channels' : ''}`}>{workspace.name}</Link>
               <span>{role.toLowerCase()}</span>
             </li>
           ))}
@@ -54,6 +56,7 @@ export default async function WorkspaceDirectory({ searchParams }: { searchParam
       <section>
         <h2>Create a workspace</h2>
         <form action={createWorkspaceAction} className="identity-form">
+          {connecting && <input type="hidden" name="intent" value="channels" />}
           <label htmlFor="name">Workspace name</label>
           <input id="name" name="name" maxLength={80} required />
           <label htmlFor="timeZone">Time zone</label>

@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import { CadenceDeskApiError, clientFromEnvironment, type DraftInput, type ScheduleInput } from '@cadencedesk/sdk';
 
-const help = `CadenceDesk CLI
+const help = `Superstar CLI
 
 Usage:
   cadencedesk channels [--limit N] [--offset N]

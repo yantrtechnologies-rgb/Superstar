@@ -16,7 +16,7 @@ export async function deliverEmail(to: string, subject: string, heading: string,
         <Preview>{heading}</Preview>
         <Body style={{ backgroundColor: '#f6f5f0', fontFamily: 'Arial, sans-serif', color: '#202623' }}>
           <Container style={{ padding: '32px', backgroundColor: '#ffffff' }}>
-            <Text style={{ fontWeight: 'bold' }}>CadenceDesk AI</Text>
+            <Text style={{ fontWeight: 'bold' }}>Superstar</Text>
             <Text style={{ fontSize: '24px', fontWeight: 'bold' }}>{heading}</Text>
             <Text>{message}</Text>
             <Button href={url} style={{ backgroundColor: '#acf0d3', color: '#153c2f', padding: '12px 18px' }}>

@@ -8,7 +8,7 @@ export default function PricingPage() {
   return (
     <main className="public-home pb-12">
       <nav className="public-nav" aria-label="Main navigation">
-        <Link className="wordmark" href="/">CadenceDesk AI</Link>
+        <Link className="wordmark" href="/">Superstar</Link>
         <Link href="/login" className="primary">Sign in</Link>
       </nav>
       <header className="my-12 max-w-xl">

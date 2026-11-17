@@ -28,9 +28,10 @@ const invitationFields = z.object({
 export async function createWorkspaceAction(form: FormData) {
   const user = await requireUser();
   const fields = workspaceFields.safeParse({ name: form.get('name'), timeZone: form.get('timeZone') });
-  if (!fields.success) redirect('/app?status=invalid-workspace');
+  const connecting = form.get('intent') === 'channels';
+  if (!fields.success) redirect(connecting ? '/app?status=invalid-workspace&intent=channels' : '/app?status=invalid-workspace');
   const workspace = await createWorkspace(user.id, fields.data.name, fields.data.timeZone);
-  redirect(`/app/${workspace.slug}`);
+  redirect(`/app/${workspace.slug}${connecting ? '/channels' : ''}`);
 }
 
 export async function inviteMemberAction(form: FormData) {
@@ -51,11 +52,11 @@ export async function inviteMemberAction(form: FormData) {
   try {
     await deliverEmail(
       email,
-      'CadenceDesk AI workspace invitation',
+      'Superstar workspace invitation',
       `Join ${workspaceName}`,
       'Sign in with this email address and accept the invitation from your workspace list within seven days.',
       new URL('/app', config.url).href,
-      'Open CadenceDesk',
+      'Open Superstar',
     );
   } catch {
     redirect(`${settings}?status=email-failed`);

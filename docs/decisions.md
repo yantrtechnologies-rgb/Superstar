@@ -2,7 +2,7 @@
 
 ## 2026-11-17
 
-- Use CadenceDesk AI and `cadencedesk`, as specified by the explicit brand configuration. Domain, verified sender, support address, pricing and legal copy remain owner settings.
+- Use Superstar and `cadencedesk`, as specified by the explicit brand configuration. Domain, verified sender, support address, pricing and legal copy remain owner settings.
 - Use [Postiz commit 36d5fc7](https://github.com/gitroomhq/postiz-app/commit/36d5fc7b3ac3f17178b1589cf7a7337523017a41) as the initial source baseline. This is an observed main-line commit from September 3, 2026. Current hosted documentation may describe later behavior. GitHub was reachable through web research, but the local Git clone could not connect over HTTPS.
 - Implement independently using product behavior and official provider contracts. The [Postiz license](https://github.com/gitroomhq/postiz-app/blob/36d5fc7b3ac3f17178b1589cf7a7337523017a41/LICENSE) is AGPL-3.0. Section 13 addresses network users' access to corresponding source for modified versions. No upstream implementation or product assets were copied.
 - Treat [hosted pricing](https://postiz.com/pricing) as public plan evidence. It advertises MCP, CLI and API across paid plans and lists plan-specific capacity. Account-level enforcement and actual provider approval remain unverified.
@@ -11,7 +11,7 @@
 
 - Compose uses one development application image for the web, API, worker and migration command. Migration completion gates API startup, and Temporal health gates worker startup.
 - The first migration establishes workspace identity and slugs. Memberships, sessions and invitations are scheduled for Phase 2.
-- The web uses a branded landing page and health route. Redis and S3-compatible storage are provisioned for later integration. The worker polls the CadenceDesk task queue for an internal probe activity.
+- The web uses a branded landing page and health route. Redis and S3-compatible storage are provisioned for later integration. The worker polls the Superstar task queue for an internal probe activity.
 
 ## Workspace identity
 
@@ -36,7 +36,7 @@
 
 ## LinkedIn OAuth checkpoint
 
-- OAuth state expires after ten minutes, is stored as a hash, and is bound to the initiating CadenceDesk user and workspace. The callback consumes state before exchanging the code and rechecks workspace management permissions before storage.
+- OAuth state expires after ten minutes, is stored as a hash, and is bound to the initiating Superstar user and workspace. The callback consumes state before exchanging the code and rechecks workspace management permissions before storage.
 - Access and refresh tokens use AES-256-GCM with a random IV and workspace, channel and token-type bindings. A row lock serializes refreshes for each channel. On HTTP 401 the adapter attempts a refresh once if it has a usable refresh credential. Disconnect removes the local credential while preserving the channel and its publishing history.
 - The first LinkedIn connector supports public text posts for a member profile. It uses the self-serve Share on LinkedIn contract. Pages, document uploads, analytics and live app verification remain open.
 
@@ -90,3 +90,9 @@
 
 - Keep the four plan identities fixed and validate displayed plan limits at runtime. Missing prices and limits display as pending. Published pricing, purchase, subscription state and entitlement enforcement are separate follow-on work.
 - The workspace billing view requires owner or admin access and reads usage and recent credit activity from workspace-scoped records.
+
+## Meta account connections
+
+- Facebook Pages and Instagram professional accounts use Facebook Login with one-time actor-bound state. Selected accounts and Page tokens remain encrypted on the server until the member chooses which accounts to connect. Saving consumes the selection atomically and rechecks workspace manager access.
+- Instagram uses the Facebook-linked professional-account flow. Consumer accounts and direct Instagram Login remain outside this checkpoint. Requests use a configured Graph API version with a default of v27.0, researched on 2026-11-18.
+- Connection scopes support account discovery. Meta publishing is unavailable in the composer until publishing adapters and the corresponding permissions are implemented. Live verification requires owner-supplied Meta app credentials, registered callback and permission approval.

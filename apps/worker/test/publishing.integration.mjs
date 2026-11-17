@@ -156,11 +156,11 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
         publishDestination, collectChannelMetric, runAiJob, importRssRun,
         deliverWebhook: (id) => deliverWebhook(id, async (endpoint, headers, body) => {
           assert.equal(endpoint.href, process.env.WEBHOOK_ALLOWED_ENDPOINTS);
-          assert.equal(headers['X-CadenceDesk-Event'], 'post.published');
-          assert.equal(headers['X-CadenceDesk-Delivery'], id);
+          assert.equal(headers['X-Superstar-Event'], 'post.published');
+          assert.equal(headers['X-Superstar-Delivery'], id);
           const signature = createHmac('sha256', webhook.secret)
-            .update(headers['X-CadenceDesk-Timestamp'] + '.' + id + '.' + body).digest('hex');
-          assert.equal(headers['X-CadenceDesk-Signature'], 'v1=' + signature);
+            .update(headers['X-Superstar-Timestamp'] + '.' + id + '.' + body).digest('hex');
+          assert.equal(headers['X-Superstar-Signature'], 'v1=' + signature);
           if (webhookBodies.has(id)) assert.equal(webhookBodies.get(id), body);
           webhookBodies.set(id, body);
           const count = (httpAttempts.get(id) ?? 0) + 1;
@@ -416,7 +416,7 @@ test('LinkedIn OAuth binds one-time state to its actor and refreshes encrypted c
     const concurrent = await Promise.all([linkedInAccess(channel.id, workspace.id), linkedInAccess(channel.id, workspace.id)]);
     assert.deepEqual(concurrent.map(({ access }) => access), ['fixture-refreshed-1', 'fixture-refreshed-1']);
     assert.equal(refreshes, 1);
-    const published = await providers.linkedin.publish(workspace.slug, channel, 'nonce', 'Hello from CadenceDesk');
+    const published = await providers.linkedin.publish(workspace.slug, channel, 'nonce', 'Hello from Superstar');
     assert.equal(published.kind, 'published');
     assert.equal(published.externalId, 'urn:li:ugcPost:1234567890123456789');
     assert.equal(writes, 2);
@@ -596,7 +596,7 @@ test('webhook pause and secret rotation protect queued deliveries and preserve h
       },
     });
     await deliverWebhook(running.id, async (_endpoint, headers) => {
-      assert.equal(headers['X-CadenceDesk-Delivery'], running.id);
+      assert.equal(headers['X-Superstar-Delivery'], running.id);
       return { statusCode: 204 };
     });
     const recovered = await prisma.webhookDelivery.findUniqueOrThrow({

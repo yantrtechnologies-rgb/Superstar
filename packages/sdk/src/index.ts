@@ -28,7 +28,7 @@ function apiBaseUrl(value: string, allowHttp: boolean) {
   try {
     url = new URL(value);
   } catch {
-    throw new CadenceDeskApiError('Set a valid CadenceDesk API URL.');
+    throw new CadenceDeskApiError('Set a valid Superstar API URL.');
   }
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if (url.username || url.password || url.search || url.hash
@@ -49,7 +49,7 @@ export class CadenceDeskClient {
   constructor(options: ClientOptions) {
     const workspace = workspaceSlug.safeParse(options.workspace);
     if (!workspace.success) throw new CadenceDeskApiError('Set a valid workspace slug.');
-    if (!apiKeyPattern.test(options.apiKey)) throw new CadenceDeskApiError('Set a valid CadenceDesk API key.');
+    if (!apiKeyPattern.test(options.apiKey)) throw new CadenceDeskApiError('Set a valid Superstar API key.');
     this.workspace = workspace.data;
     this.#apiBase = apiBaseUrl(options.apiUrl, options.allowHttp === true);
     this.#apiKey = options.apiKey;
@@ -71,7 +71,7 @@ export class CadenceDeskClient {
         signal: AbortSignal.timeout(15_000),
       });
     } catch {
-      throw new CadenceDeskApiError('The CadenceDesk API request could not be completed.');
+      throw new CadenceDeskApiError('The Superstar API request could not be completed.');
     }
     const data: unknown = await response.json().catch(() => null);
     if (!response.ok) {
@@ -86,7 +86,7 @@ export class CadenceDeskClient {
       );
     }
     const validated = output.safeParse(data);
-    if (!validated.success) throw new CadenceDeskApiError('The CadenceDesk API returned an unexpected response.');
+    if (!validated.success) throw new CadenceDeskApiError('The Superstar API returned an unexpected response.');
     return validated.data;
   }
 

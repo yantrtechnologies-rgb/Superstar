@@ -4,7 +4,7 @@ export default async function ReviewReceived({ searchParams }: { searchParams: P
   const { status } = await searchParams;
   return (
     <main className="identity-shell">
-      <p className="wordmark">CadenceDesk AI</p>
+      <p className="wordmark">Superstar</p>
       <h1>{status === 'invalid' ? 'Review response unavailable' : 'Changes requested'}</h1>
       <p>{status === 'invalid' ? 'Open the review link again to submit feedback.' : 'Your feedback is available to the workspace team.'}</p>
     </main>

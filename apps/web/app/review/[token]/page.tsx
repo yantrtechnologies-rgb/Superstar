@@ -2,7 +2,7 @@ import { getProvider, reviewPreview } from '@cadencedesk/data';
 import { notFound } from 'next/navigation';
 import { reviewResponseAction } from './actions';
 
-export const metadata = { title: 'Client review · CadenceDesk AI', robots: { index: false, follow: false }, referrer: 'no-referrer' };
+export const metadata = { title: 'Client review · Superstar', robots: { index: false, follow: false }, referrer: 'no-referrer' };
 
 export default async function ClientReview({ params, searchParams }: {
   params: Promise<{ token: string }>;
@@ -13,7 +13,7 @@ export default async function ClientReview({ params, searchParams }: {
   if (!review) notFound();
   return (
     <main className="identity-shell">
-      <p className="wordmark">CadenceDesk AI</p>
+      <p className="wordmark">Superstar</p>
       <h1>Client review</h1>
       <p>{review.workspaceName} · Revision {review.revision}</p>
       <article className="review-preview">

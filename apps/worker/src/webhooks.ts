@@ -102,11 +102,11 @@ export async function deliverWebhook(id: string, transport: Transport = send): P
       const response = await transport(endpoint, {
         'Content-Type': 'application/json',
         'Content-Length': String(Buffer.byteLength(body)),
-        'User-Agent': 'CadenceDesk-Webhook/1.0',
-        'X-CadenceDesk-Delivery': id,
-        'X-CadenceDesk-Event': 'post.published',
-        'X-CadenceDesk-Timestamp': timestamp,
-        'X-CadenceDesk-Signature': 'v1=' + signature,
+        'User-Agent': 'Superstar-Webhook/1.0',
+        'X-Superstar-Delivery': id,
+        'X-Superstar-Event': 'post.published',
+        'X-Superstar-Timestamp': timestamp,
+        'X-Superstar-Signature': 'v1=' + signature,
       }, body);
       statusCode = response.statusCode;
       if (statusCode >= 200 && statusCode < 300) state = 'DELIVERED';

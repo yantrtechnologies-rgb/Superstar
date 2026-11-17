@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'CadenceDesk AI',
+  title: 'Superstar',
   description: 'Plan, review and publish social campaigns from one workspace.',
 };
 

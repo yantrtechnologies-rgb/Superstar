@@ -274,6 +274,7 @@ model Asset {
 }
 
 model OAuthState {
+  payload     String?
   hash        String    @id
   userId      String    @db.Uuid @map("user_id")
   workspaceId String    @db.Uuid @map("workspace_id")

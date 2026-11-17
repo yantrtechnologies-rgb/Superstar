@@ -30,7 +30,7 @@ function workspaceServer(client: CadenceDeskClient) {
   });
 
   server.registerTool('list_channels', {
-    description: 'List channels in the configured CadenceDesk workspace. Requires channels:read.',
+    description: 'List channels in the configured Superstar workspace. Requires channels:read.',
     inputSchema: page, outputSchema: apiChannelPage, annotations: readOnly,
   }, (input) => report(() => client.listChannels(input)));
 
@@ -78,6 +78,6 @@ try {
   process.once('SIGINT', () => { void running.close(); });
   process.once('SIGTERM', () => { void running.close(); });
 } catch (error) {
-  process.stderr.write((error instanceof CadenceDeskApiError ? error.message : 'CadenceDesk MCP startup failed.') + '\n');
+  process.stderr.write((error instanceof CadenceDeskApiError ? error.message : 'Superstar MCP startup failed.') + '\n');
   process.exitCode = 1;
 }

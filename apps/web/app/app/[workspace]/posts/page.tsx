@@ -107,8 +107,9 @@ export default async function Posts({ params, searchParams }: {
                       const adapter = getProvider(channel.provider);
                       return (
                         <label key={channel.id} className="channel-choice">
-                          <input type="checkbox" name="channel" value={channel.id} />
+                          <input type="checkbox" name="channel" value={channel.id} disabled={!adapter} />
                           #{channel.name}
+                          {!adapter && <small className="block">Publishing support is pending for this connection.</small>}
                           {adapter && <small className="block">{
                             `${adapter.name} · ${adapter.textLimit} characters · ${adapter.imageCaptionLimit
                               ? `${adapter.imageCaptionLimit} with image` : 'text only'}`

@@ -28,8 +28,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => {
         const canonicalLink = new URL(link.pathname + link.search, config.url);
         await deliverEmail(
           identifier,
-          'Your CadenceDesk AI sign-in link',
-          'Sign in to CadenceDesk',
+          'Your Superstar sign-in link',
+          'Sign in to Superstar',
           'This link expires in 15 minutes and can be used once.',
           canonicalLink.href,
           'Sign in',

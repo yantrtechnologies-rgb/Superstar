@@ -19,7 +19,7 @@ export default async function WorkspaceLayout({ children, params }: {
     <div className="workspace-shell">
       <a href="#workspace-content" className="skip-link">Skip to content</a>
       <aside>
-        <Link className="wordmark" href="/app">CadenceDesk AI</Link>
+        <Link className="wordmark" href="/app">Superstar</Link>
         <WorkspaceNav workspace={workspace} canManage={membership.role === 'OWNER' || membership.role === 'ADMIN'} />
         <nav aria-label="Switch workspace">
           <h2>Workspaces</h2>
