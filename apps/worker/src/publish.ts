@@ -16,7 +16,7 @@ export async function publishDestination(id: string): Promise<number | null> {
     if (!changed.count) return null;
     const destination = await tx.destination.findUniqueOrThrow({
       where: { id },
-      include: { channel: true, post: { include: { workspace: true } }, _count: { select: { attempts: true } } },
+      include: { channel: true, parent: true, post: { include: { workspace: true } }, _count: { select: { attempts: true } } },
     });
     const [revision, approval] = await Promise.all([
       tx.postRevision.findUnique({ where: { postId_number: { postId: destination.postId, number: destination.revision } }, include: { asset: true } }),
@@ -44,10 +44,20 @@ export async function publishDestination(id: string): Promise<number | null> {
   let result: PublishResult = { kind: 'failed', error: 'The approved revision or destination is unavailable.' };
   if (valid && revision && provider) {
     const asset = revision.asset;
+    const parent = destination.parent;
     try {
-      validateProviderPost(destination.channel.provider, revision.content, Boolean(asset));
-      const image = asset ? { bytes: await readImage(asset, destination.post.workspaceId), type: asset.type } : undefined;
-      result = await provider.publish(destination.post.workspace.slug, destination.channel, nonce, revision.content, image);
+      if (!destination.parentId) {
+        validateProviderPost(destination.channel.provider, revision.content, Boolean(asset));
+        const image = asset ? { bytes: await readImage(asset, destination.post.workspaceId), type: asset.type } : undefined;
+        result = await provider.publish(destination.post.workspace.slug, destination.channel, nonce, revision.content, image);
+      } else if (parent?.state === 'PUBLISHED' && parent.externalId && parent.postId === destination.postId
+        && parent.channelId === destination.channelId && parent.revision === destination.revision
+        && revision.followUpText && provider.reply) {
+        validateProviderPost(destination.channel.provider, revision.followUpText, false);
+        result = await provider.reply(destination.post.workspace.slug, destination.channel, nonce, revision.followUpText, parent.externalId);
+      } else {
+        result = { kind: 'failed', error: 'The approved follow-up or parent publication is unavailable.' };
+      }
     } catch (error) {
       if (!(error instanceof AssetStorageError || error instanceof ProviderConfigurationError)) throw error;
       result = { kind: 'failed', error: error.message };
@@ -67,7 +77,16 @@ export async function publishDestination(id: string): Promise<number | null> {
       data: outcome,
     });
     if (!saved.count) return;
-    if (outcome.state === 'PUBLISHED') {
+    if (outcome.state === 'PUBLISHED' && !destination.parentId) {
+      if (revision?.followUpText && revision.followUpDelayMinutes && provider?.reply) {
+        const dueAt = new Date(Date.now() + revision.followUpDelayMinutes * 60_000);
+        await tx.destination.create({
+          data: {
+            postId: destination.postId, channelId: destination.channelId, revision: destination.revision,
+            parentId: id, notBefore: dueAt, outbox: { create: { dueAt } },
+          },
+        });
+      }
       await enqueuePublishedWebhooks(tx, {
         workspaceId: destination.post.workspaceId, postId: destination.postId, destinationId: id,
         channelId: destination.channelId, provider: destination.channel.provider,

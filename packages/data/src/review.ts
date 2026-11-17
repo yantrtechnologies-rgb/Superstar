@@ -64,7 +64,7 @@ export async function reviewPreview(token: string) {
   const { post, revision } = link;
   const version = await prisma.postRevision.findUnique({
     where: { postId_number: { postId: post.id, number: revision } },
-    select: { content: true, channelIds: true, asset: true },
+    select: { content: true, channelIds: true, asset: true, followUpText: true, followUpDelayMinutes: true },
   });
   if (!version) return null;
   const [comments, channels] = await Promise.all([
@@ -81,6 +81,7 @@ export async function reviewPreview(token: string) {
   return {
     workspaceName: post.workspace.name, workspaceId: post.workspaceId,
     revision, state: post.state, content: version.content, asset: version.asset, comments, channels,
+    followUpText: version.followUpText, followUpDelayMinutes: version.followUpDelayMinutes,
   };
 }
 

@@ -10,7 +10,7 @@ const messages: Record<string, string> = {
   saved: 'Post updated.',
   slot: 'No shared time was available in the next five weeks. Change the channel posting slots or choose a time manually.',
   invalid: 'Check the text, UTC time and selected destinations.',
-  provider: 'Check the text length and attachment limits for every selected destination.',
+  provider: 'Check destination text and attachment limits. A follow-up needs at least one Discord destination.',
   image: 'Use a PNG or JPEG up to 2 MiB. If the file is valid, ask your operator to check object storage.',
   unavailable: 'That action is unavailable. Check the post status, approval and your workspace access.',
 };
@@ -22,6 +22,21 @@ function PostFields({ workspace, id, revision }: { workspace: string; id?: strin
       {id && <input type="hidden" name="postId" value={id} />}
       {revision && <input type="hidden" name="revision" value={revision} />}
     </>
+  );
+}
+
+function FollowUpFields({ id, text, delay }: { id: string; text?: string | null; delay?: number | null }) {
+  return (
+    <details open={Boolean(text)}>
+      <summary>Discord follow-up</summary>
+      <div className="identity-form">
+        <p>Send a reply after the parent message succeeds.</p>
+        <label htmlFor={`reply-${id}`}>Follow-up text</label>
+        <textarea id={`reply-${id}`} name="followUpText" rows={3} maxLength={2000} defaultValue={text ?? ''} />
+        <label htmlFor={`delay-${id}`}>Delay in minutes</label>
+        <input id={`delay-${id}`} name="followUpDelay" type="number" min="1" max="10080" defaultValue={delay ?? 15} />
+      </div>
+    </details>
   );
 }
 
@@ -49,6 +64,7 @@ export default async function Posts({ params, searchParams }: {
             <textarea id="new-content" name="content" maxLength={4096} rows={4} required />
             <label htmlFor="new-image">Optional image (PNG or JPEG, up to 2 MiB)</label>
             <input id="new-image" type="file" name="image" accept="image/png,image/jpeg" />
+            <FollowUpFields id="new" />
             <button type="submit">Create draft</button>
           </form>
         </section>
@@ -69,9 +85,14 @@ export default async function Posts({ params, searchParams }: {
                   <textarea id={post.id} name="content" maxLength={4096} rows={4} defaultValue={content} required />
                   <label htmlFor={`image-${post.id}`}>Optional replacement image</label>
                   <input id={`image-${post.id}`} type="file" name="image" accept="image/png,image/jpeg" />
+                  <FollowUpFields id={post.id} text={post.revisions[0]?.followUpText} delay={post.revisions[0]?.followUpDelayMinutes} />
                   <button type="submit">Save new revision</button>
                 </form>
               ) : <p className="post-content">{content}</p>}
+              {post.revisions[0]?.followUpText && <div>
+                <p>Discord follow-up · {post.revisions[0].followUpDelayMinutes} minutes after publication</p>
+                <p className="post-content">{post.revisions[0].followUpText}</p>
+              </div>}
               {post.revisions[0]?.asset && <p>Attached image · {post.revisions[0].asset.type}</p>}
               {post.revisions[0]?.channelIds.length ? (
                 <p>Destinations: {channels.filter(({ id }) => post.revisions[0]?.channelIds.includes(id))
@@ -148,7 +169,7 @@ export default async function Posts({ params, searchParams }: {
                 <ul className="workspaces-list">
                   {post.destinations.map((destination) => (
                     <li key={destination.id}>
-                      <span>#{destination.channel.name} · {destination.state.toLowerCase()}</span>
+                      <span>#{destination.channel.name} · {destination.state.toLowerCase()}{destination.parentId ? ' · follow-up' : ''}</span>
                       {destination.error && <p>{destination.error}</p>}
                       {destination.permalink && <a href={destination.permalink}>Open in {getProvider(destination.channel.provider)?.name ?? 'provider'}</a>}
                     </li>

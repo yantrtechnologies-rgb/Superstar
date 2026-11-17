@@ -9,15 +9,18 @@ export type PublishResult =
   | { kind: 'failed' | 'uncertain'; error: string };
 
 export type PublishingImage = { bytes: Uint8Array<ArrayBuffer>; type: string };
+type PublishChannel = { id: string; workspaceId: string; externalId: string; guildId: string | null };
+
 type PublishingProvider = {
   name: string;
   textLimit: number;
   imageCaptionLimit: number | null;
   connectionHelp: string;
   publish(
-    workspace: string, channel: { id: string; workspaceId: string; externalId: string; guildId: string | null },
+    workspace: string, channel: PublishChannel,
     nonce: string, content: string, image?: PublishingImage,
   ): Promise<PublishResult>;
+  reply?(workspace: string, channel: PublishChannel, nonce: string, content: string, parentId: string): Promise<PublishResult>;
 };
 
 export type BotProviderAdapter = PublishingProvider & {

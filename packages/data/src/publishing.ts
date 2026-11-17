@@ -68,7 +68,20 @@ export function listPosts(userId: string, slug: string, scheduledOnly = false, g
   });
 }
 
-export async function savePost(userId: string, slug: string, content: string, postId?: string, revision?: number, image?: Uint8Array<ArrayBuffer>) {
+type FollowUpDraft = { text: string; delayMinutes: number };
+
+export async function savePost(
+  userId: string, slug: string, content: string, postId?: string, revision?: number,
+  image?: Uint8Array<ArrayBuffer>, followUp?: FollowUpDraft | null,
+) {
+  if (followUp && (!followUp.text.trim() || followUp.text.length > 2000
+    || !Number.isInteger(followUp.delayMinutes) || followUp.delayMinutes < 1 || followUp.delayMinutes > 10_080)) {
+    throw new WorkspaceAccessError('Use follow-up text and a delay between 1 and 10,080 minutes.');
+  }
+  const followUpData = followUp === undefined ? {} : {
+    followUpText: followUp?.text.trim() ?? null, followUpDelayMinutes: followUp?.delayMinutes ?? null,
+  };
+
   if (!content.trim() || content.length > 4096) throw new WorkspaceAccessError('Use 1–4,096 characters.');
   const scoped = await requireScope(prisma, userId, slug);
   if (!canWritePosts(scoped.role)) throw new WorkspaceAccessError('You cannot edit drafts.');
@@ -79,7 +92,7 @@ export async function savePost(userId: string, slug: string, content: string, po
     if (scoped.workspaceId !== workspaceId) throw new WorkspaceAccessError('Workspace is unavailable.');
     const asset = uploaded ? await tx.asset.create({ data: { workspaceId, ...uploaded } }) : null;
     if (!postId || revision === undefined) {
-      return tx.post.create({ data: { workspaceId, revisions: { create: { number: 1, content, assetId: asset?.id } } } });
+      return tx.post.create({ data: { workspaceId, revisions: { create: { number: 1, content, assetId: asset?.id, ...followUpData } } } });
     }
     const updated = await tx.post.updateMany({
       where: { id: postId, workspaceId, revision, state: { in: ['DRAFT', 'IN_REVIEW', 'APPROVED'] } },
@@ -88,7 +101,10 @@ export async function savePost(userId: string, slug: string, content: string, po
     if (!updated.count) throw new WorkspaceAccessError('This draft changed or is unavailable.');
     const current = await tx.postRevision.findUniqueOrThrow({ where: { postId_number: { postId, number: revision } } });
     await tx.postRevision.create({
-      data: { postId, number: revision + 1, content, assetId: asset?.id ?? current.assetId },
+            data: {
+        postId, number: revision + 1, content, assetId: asset?.id ?? current.assetId,
+        followUpText: current.followUpText, followUpDelayMinutes: current.followUpDelayMinutes, ...followUpData,
+      },
     });
     return tx.post.findUniqueOrThrow({ where: { id: postId } });
   }, serializable);
@@ -121,6 +137,9 @@ export async function transitionPost(
         where: { postId_number: { postId, number: revision } },
       });
       for (const channel of channels) validateProviderPost(channel.provider, draft.content, Boolean(draft.assetId));
+      if (draft.followUpText && !channels.some((channel) => getProvider(channel.provider)?.reply)) {
+        throw new ProviderConfigurationError('Select a Discord destination for the follow-up.');
+      }
       await tx.postRevision.update({
         where: { postId_number: { postId, number: revision } }, data: { channelIds },
       });
@@ -131,35 +150,42 @@ export async function transitionPost(
   }, serializable);
 }
 
-export async function schedulePost(
-  userId: string, slug: string, postId: string, revision: number, targets: string[], requestedAt: Date | 'next',
+export async function scheduleApprovedPost(
+  tx: Prisma.TransactionClient, workspaceId: string, actorId: string,
+  postId: string, revision: number, targets: string[], requestedAt: Date | 'next',
 ) {
   const channelIds = [...new Set(targets)].sort();
   if (channelIds.length < 1 || channelIds.length > 20 || (requestedAt !== 'next' && !Number.isFinite(requestedAt.getTime()))) {
     throw new WorkspaceAccessError('Select between 1 and 20 destinations and a valid date.');
   }
+  const [channels, approval] = await Promise.all([
+    tx.channel.count({ where: { workspaceId, id: { in: channelIds } } }),
+    tx.approval.findFirst({ where: { postId, revision, version: { post: { workspaceId } } }, include: { version: true } }),
+  ]);
+  if (channels !== channelIds.length || !approval || approval.version.channelIds.join() !== channelIds.join()) {
+    throw new WorkspaceAccessError('The approval or selected channels are unavailable.');
+  }
+  const scheduledAt = requestedAt === 'next' ? await findNextPostingSlot(tx, workspaceId, channelIds) : requestedAt;
+  const changed = await tx.post.updateMany({
+    where: { id: postId, workspaceId, state: 'APPROVED', revision },
+    data: { state: 'SCHEDULED', scheduledAt },
+  });
+  if (!changed.count) throw new WorkspaceAccessError('This approval is no longer current.');
+  for (const channelId of channelIds) {
+    await tx.destination.create({
+      data: { postId, channelId, revision, outbox: { create: { dueAt: scheduledAt } } },
+    });
+  }
+  await tx.auditEvent.create({ data: { workspaceId, actorId, subjectId: postId, action: 'post.scheduled' } });
+}
+
+export async function schedulePost(
+  userId: string, slug: string, postId: string, revision: number, targets: string[], requestedAt: Date | 'next',
+) {
   return prisma.$transaction(async (tx) => {
     const { workspaceId, role } = await requireScope(tx, userId, slug);
     if (!canWritePosts(role)) throw new WorkspaceAccessError('You cannot schedule posts.');
-    const [channels, approval] = await Promise.all([
-      tx.channel.count({ where: { workspaceId, id: { in: channelIds } } }),
-      tx.approval.findFirst({ where: { postId, revision, version: { post: { workspaceId } } }, include: { version: true } }),
-    ]);
-    if (channels !== channelIds.length || !approval || approval.version.channelIds.join() !== channelIds.join()) {
-      throw new WorkspaceAccessError('The approval or selected channels are unavailable.');
-    }
-    const scheduledAt = requestedAt === 'next' ? await findNextPostingSlot(tx, workspaceId, channelIds) : requestedAt;
-    const changed = await tx.post.updateMany({
-      where: { id: postId, workspaceId, state: 'APPROVED', revision },
-      data: { state: 'SCHEDULED', scheduledAt },
-    });
-    if (!changed.count) throw new WorkspaceAccessError('This approval is no longer current.');
-    for (const channelId of channelIds) {
-      await tx.destination.create({
-        data: { postId, channelId, revision, outbox: { create: { dueAt: scheduledAt } } },
-      });
-    }
-    await tx.auditEvent.create({ data: { workspaceId, actorId: userId, subjectId: postId, action: 'post.scheduled' } });
+    await scheduleApprovedPost(tx, workspaceId, userId, postId, revision, targets, requestedAt);
   }, serializable);
 }
 

@@ -102,3 +102,9 @@ Upload an MP4 of up to 20 MiB in **AI Studio → Workspace video**. Select the s
 Compose starts a dedicated FFmpeg media worker. For a host-run stack, install `ffmpeg` and `ffprobe`, configure the database, Temporal and object storage, and run `pnpm --filter @cadencedesk/worker start:media` alongside the main worker. Set `MEDIA_CLIPPING_ENABLED=true` for the web process. Set `FFMPEG_PATH` and `FFPROBE_PATH` when the binaries are outside your executable path. [FFmpeg documentation](https://ffmpeg.org/ffmpeg.html)
 
 To transcribe the audio of a workspace MP4, configure `OPENAI_TRANSCRIBE_MODEL` and `AI_TRANSCRIBE_BASE_CREDITS` alongside the OpenAI key. The Studio displays the credit quote before sending the selected file to OpenAI. Results and failed-job refunds appear in the same history as other Studio jobs. [OpenAI transcription API](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create)
+
+## Reviewed RSS publishing and delayed replies
+
+When creating an RSS rule, enable **Schedule approved imports in the next shared slot** and select its destinations. A compatible imported item enters review with those destinations. Approving its current revision lets the worker schedule it in the next shared posting slot. Items that exceed destination limits open as drafts for editing. If a slot is unavailable, the rule reports the reason and retries after five minutes. Pausing a rule stops future imports and automatic scheduling. Cancel a post in Posts to remove its existing pending destinations.
+
+In the post editor, expand **Discord follow-up** to add reply text and a delay. The reply appears in the revision preview. Each successful Discord destination schedules its own reply, and the Posts screen shows the reply's status. Grant the bot **Read Message History** along with channel access and posting permission. [Discord message replies](https://docs.discord.com/developers/resources/message#create-message)

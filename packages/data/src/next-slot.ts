@@ -43,7 +43,7 @@ export async function findNextPostingSlot(tx: Prisma.TransactionClient, workspac
     }),
     tx.destination.findMany({
       where: {
-        channelId: { in: channelIds }, state: { in: ['SCHEDULED', 'PUBLISHING', 'PUBLISHED'] },
+        channelId: { in: channelIds }, parentId: null, state: { in: ['SCHEDULED', 'PUBLISHING', 'PUBLISHED'] },
         post: { workspaceId, scheduledAt: { gte: now, lte: new Date(now.getTime() + 36 * 86_400_000) } },
       },
       select: { post: { select: { scheduledAt: true } } },

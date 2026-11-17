@@ -1,4 +1,4 @@
-import { fetchFeed, parseFeed, prisma, RssConfigurationError } from '@cadencedesk/data';
+import { fetchFeed, parseFeed, prisma, ProviderConfigurationError, RssConfigurationError, validateProviderPost } from '@cadencedesk/data';
 import { Client, WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
 
 export async function importRssRun(id: string) {
@@ -30,14 +30,30 @@ export async function recordFeedItems(id: string, entries: { sourceKey: string; 
       data: { state: run.rule.enabled ? 'COMPLETED' : 'SKIPPED' },
     });
     if (!updated.count || !run.rule.enabled) return 0;
+    const { workspaceId, channelIds, publishAfterApproval } = run.rule;
+    const channels = publishAfterApproval ? await tx.channel.findMany({
+      where: { workspaceId, id: { in: channelIds } }, select: { provider: true },
+    }) : [];
     let imported = 0;
     for (const { sourceKey, content } of entries) {
       const item = await tx.feedImport.createMany({
-        data: [{ ruleId: run.ruleId, sourceKey }], skipDuplicates: true,
+        data: [{ ruleId: run.ruleId, sourceKey, scheduleState: publishAfterApproval ? 'WAITING_REVIEW' : 'OFF' }], skipDuplicates: true,
       });
       if (!item.count) continue;
+      let readyToReview = Boolean(channels.length && channels.length === channelIds.length);
+      if (readyToReview) {
+        try {
+          for (const channel of channels) validateProviderPost(channel.provider, content, false);
+        } catch (error) {
+          if (!(error instanceof ProviderConfigurationError)) throw error;
+          readyToReview = false;
+        }
+      }
       const post = await tx.post.create({
-        data: { workspaceId: run.rule.workspaceId, revisions: { create: { number: 1, content } } },
+        data: {
+          workspaceId, state: readyToReview ? 'IN_REVIEW' : 'DRAFT',
+          revisions: { create: { number: 1, content, channelIds: readyToReview ? channelIds : [] } },
+        },
       });
       await tx.feedImport.update({
         where: { ruleId_sourceKey: { ruleId: run.ruleId, sourceKey } }, data: { postId: post.id },

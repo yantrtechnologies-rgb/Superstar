@@ -1,6 +1,6 @@
 import { NativeConnection, Worker } from '@temporalio/worker';
 import { Client, Connection } from '@temporalio/client';
-import { prisma } from '@cadencedesk/data';
+import { prisma, scheduleReviewedRssImports } from '@cadencedesk/data';
 import { createServer } from 'node:http';
 import { collectChannelMetric, dispatchAnalytics } from './analytics';
 import { dispatchAiJobs, reconcileAiJobs, runAiJob } from './ai';
@@ -19,6 +19,7 @@ async function dispatch(client: Client, stop: AbortSignal) {
       await dispatchAiJobs(client);
       await queueDueRssRules();
       await dispatchRssRuns(client);
+      await scheduleReviewedRssImports();
       await dispatchWebhooks(client);
     } catch {
       console.error(JSON.stringify({ event: 'publishing.outbox_poll_failed' }));

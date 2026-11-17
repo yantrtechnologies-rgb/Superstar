@@ -53,7 +53,7 @@
 - A conditional balance decrement and its ledger entry commit together. The worker claims a job once. The finalizer captures the reservation on success or refunds it on failure, queued cancellation or interrupted execution. Failed ambiguous provider calls are refunded without automatically retrying the generation. Phase 8 adds subscription and purchased-credit grants.
 - Generated images are stored under workspace-owned keys. This checkpoint makes the result downloadable from the Studio. Text and attachment transfers into the composer are manual.
 - RSS imports are limited to exact operator-configured public HTTPS feed URLs. DNS results are checked and the connection is pinned to a verified public IPv4 address. Redirects, compressed bodies, oversized documents, DTDs and entity declarations are rejected. A source item key is unique per rule, and each imported item becomes an unapproved draft.
-- AI video, publishing plugs, RSS-to-publish and live AI verification remain pending.
+- AI video, engagement-triggered plugs, unattended RSS publishing and live AI verification remain pending.
 
 ## Outbound webhook delivery
 
@@ -67,3 +67,9 @@
 - The media worker polls a separate Temporal task queue. Compose gives it a read-only container, bounded scratch space, resource limits, and an internal network shared with the database, Temporal and object storage. FFmpeg receives local file paths and a minimal process environment.
 - Video transcription sends the selected MP4 to the configured OpenAI project. Transcription shares quoted credit reservation, capture and refund behavior with text and image generation. Manual clips use local compute and consume zero AI credits.
 - Live OpenAI verification, generated video, automated clip suggestions, captions and publishing plugs remain pending. The current composer accepts images and text. Studio clips are available for download.
+
+## Reviewed publishing automations
+
+- An RSS rule may schedule imports after a human approval. The authorizing owner or admin, enabled rule, channel set and current approval are rechecked when reserving a shared slot. Existing draft-only imports retain their mode. Slots that become available are picked up on the next scheduling pass.
+- A Discord follow-up is part of the approved revision. A confirmed parent publication creates its delayed destination and outbox event atomically. The reply uses that parent's message ID, the worker's normal destination retry guards and suppressed mentions. The post publication webhook represents the parent publication.
+- Engagement-triggered plugs, unattended RSS publishing, live Discord replies, and video attachments in the composer remain open.

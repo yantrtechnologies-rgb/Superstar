@@ -50,7 +50,12 @@ export async function savePostAction(form: FormData) {
     const file = form.get('image');
     if (file instanceof File && file.size > imageLimit) throw new AssetStorageError('Image exceeds 2 MiB.');
     const image = file instanceof File && file.size ? new Uint8Array(await file.arrayBuffer()) : undefined;
-    return savePost(actor, slug, content, current?.postId, current?.revision, image);
+    const followUpText = form.has('followUpText') ? z.string().trim().max(2000).parse(form.get('followUpText')) : undefined;
+    const followUp = followUpText === undefined ? undefined : followUpText ? {
+      text: followUpText,
+      delayMinutes: z.coerce.number().int().min(1).max(10_080).parse(form.get('followUpDelay')),
+    } : null;
+    return savePost(actor, slug, content, current?.postId, current?.revision, image, followUp);
   });
 }
 

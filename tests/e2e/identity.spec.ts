@@ -365,3 +365,47 @@ test('Studio uploads an MP4 and queues clipping and transcription', async ({ pag
     await prisma.$disconnect();
   }
 });
+
+test('an admin can configure reviewed RSS publishing and share the approved follow-up preview', async ({ browser, page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  const email = `publishing-rules-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Riverside Studio');
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
+  const client = await browser.newPage();
+  try {
+    await prisma.channel.create({ data: {
+      workspaceId: workspace.id, provider: 'discord', name: 'riverside-news',
+      externalId: '123456789012345671', guildId: '123456789012345670',
+    } });
+    await page.getByRole('link', { name: 'Automations', exact: true }).click();
+    await page.getByLabel('Rule name').fill('Reviewed studio news');
+    await page.getByLabel('Approved HTTPS feed URL').fill('https://news.example.invalid/feed.xml');
+    await page.getByLabel('Schedule approved imports in the next shared slot').check();
+    await page.getByLabel('#riverside-news').check();
+    await page.getByRole('button', { name: 'Add RSS rule' }).click();
+    await expect(page.getByText('Schedule after approval', { exact: true })).toBeVisible();
+
+    await page.goto(path + '/posts');
+    await page.getByLabel('Post text', { exact: true }).fill('Riverside workshop registration is open.');
+    await page.getByText('Discord follow-up', { exact: true }).click();
+    await page.getByLabel('Follow-up text').fill('Bring a notebook to the first session.');
+    await page.getByLabel('Delay in minutes').fill('10');
+    await page.getByRole('button', { name: 'Create draft' }).click();
+    const draft = page.getByRole('article');
+    await expect(draft.getByText('Discord follow-up · 10 minutes after publication')).toBeVisible();
+    await draft.getByLabel('#riverside-news').check();
+    await draft.getByRole('button', { name: 'Request approval' }).click();
+    await draft.getByRole('button', { name: 'Create client review link' }).click();
+    const reviewLink = draft.getByLabel('Shareable review link');
+    await expect(reviewLink).toBeVisible();
+    await client.goto(await reviewLink.inputValue());
+    await expect(client.getByText('Bring a notebook to the first session.')).toBeVisible();
+    await expect(client.getByText('Discord follow-up · 10 minutes after publication')).toBeVisible();
+  } finally {
+    await client.close();
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { email } });
+    await prisma.$disconnect();
+  }
+});

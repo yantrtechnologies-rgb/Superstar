@@ -18,6 +18,7 @@ export const discord: BotProviderAdapter = {
   connectionHelp: 'Install the bot with View Channel and Send Messages. Grant Attach Files for image posts.',
   discover: discoverDiscordChannel,
   publish: sendDiscord,
+  reply: (workspace, channel, nonce, content, parentId) => sendDiscord(workspace, channel, nonce, content, undefined, parentId),
 };
 
 async function discoverDiscordChannel(workspace: string, channelId: string) {
@@ -41,6 +42,7 @@ async function sendDiscord(
   nonce: string,
   content: string,
   image?: PublishingImage,
+  parentId?: string,
 ): Promise<PublishResult> {
   if (!channel.guildId) return { kind: 'failed', error: 'Reconnect the Discord channel.' };
   let headers;
@@ -52,7 +54,11 @@ async function sendDiscord(
   }
 
   try {
-    const payload = JSON.stringify({ content, nonce, enforce_nonce: true, allowed_mentions: { parse: [] } });
+    if (parentId && !/^\d{17,20}$/.test(parentId)) return { kind: 'failed', error: 'The parent Discord message is unavailable.' };
+    const payload = JSON.stringify({
+      content, nonce, enforce_nonce: true, allowed_mentions: { parse: [], replied_user: false },
+      ...(parentId ? { message_reference: { message_id: parentId, fail_if_not_exists: true } } : {}),
+    });
     let body: string | FormData = payload;
     if (image) {
       const form = new FormData();

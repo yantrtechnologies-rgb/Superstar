@@ -713,3 +713,126 @@ test('the media queue clips a real MP4 and the transcription job captures its cr
     }
   }
 });
+
+test('an approved Discord follow-up waits for a confirmed parent and sends once', async () => {
+  const { ProviderConfigurationError } = await import('@cadencedesk/data');
+  const { owner, workspace } = await createFixture();
+  const originalFetch = globalThis.fetch;
+  const replies = [];
+  const parentMessage = '123456789012345679';
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    assert.equal(url.origin, 'https://discord.com');
+    const body = JSON.parse(init.body);
+    if (body.message_reference) {
+      replies.push(body);
+      return Response.json({ id: '123456789012345680' });
+    }
+    if (url.pathname.includes(ids.bad)) return Response.json({}, { status: 403 });
+    return Response.json({ id: parentMessage });
+  };
+  try {
+    const [good, bad, slack] = await Promise.all([
+      prisma.channel.create({ data: {
+        workspaceId: workspace.id, provider: 'discord', externalId: ids.good, guildId: ids.guild, name: 'primary',
+      } }),
+      prisma.channel.create({ data: {
+        workspaceId: workspace.id, provider: 'discord', externalId: ids.bad, guildId: ids.guild, name: 'denied',
+      } }),
+      prisma.channel.create({ data: {
+        workspaceId: workspace.id, provider: 'slack', externalId: 'C000000001', name: 'slack',
+      } }),
+    ]);
+    const draft = await savePost(owner.id, workspace.slug, 'Original announcement', undefined, undefined, undefined, {
+      text: 'First follow-up draft', delayMinutes: 1,
+    });
+    await assert.rejects(transitionPost(owner.id, workspace.slug, draft.id, 1, 'IN_REVIEW', [slack.id]), ProviderConfigurationError);
+    const targets = [good.id, bad.id];
+    await transitionPost(owner.id, workspace.slug, draft.id, 1, 'IN_REVIEW', targets);
+    await transitionPost(owner.id, workspace.slug, draft.id, 1, 'APPROVED');
+    await savePost(owner.id, workspace.slug, 'Original announcement', draft.id, 1, undefined, {
+      text: 'Approved follow-up', delayMinutes: 1,
+    });
+    await assert.rejects(schedulePost(owner.id, workspace.slug, draft.id, 1, targets, new Date()));
+    await transitionPost(owner.id, workspace.slug, draft.id, 2, 'IN_REVIEW', targets);
+    await transitionPost(owner.id, workspace.slug, draft.id, 2, 'APPROVED');
+    await schedulePost(owner.id, workspace.slug, draft.id, 2, targets, new Date());
+    const root = await prisma.destination.findMany({ where: { postId: draft.id, parentId: null } });
+    await Promise.all(root.map(({ id }) => publishDestination(id)));
+    const followUps = await prisma.destination.findMany({
+      where: { postId: draft.id, parentId: { not: null } },
+      include: { parent: true, outbox: true },
+    });
+    assert.equal(followUps.length, 1);
+    const [followUp] = followUps;
+    assert.equal(followUp.parent.channelId, good.id);
+    assert.equal(followUp.parent.externalId, parentMessage);
+    assert.ok(followUp.outbox.dueAt.getTime() - Date.now() > 50_000);
+    assert.ok(await publishDestination(followUp.id) > 0);
+    assert.equal(replies.length, 0);
+
+    // Move the fixture clock forward without a real-time minute wait.
+    await prisma.destination.update({
+      where: { id: followUp.id }, data: { notBefore: new Date(0), outbox: { update: { dueAt: new Date(0) } } },
+    });
+    await Promise.all([publishDestination(followUp.id), publishDestination(followUp.id)]);
+    assert.equal(replies.length, 1);
+    assert.equal(replies[0].content, 'Approved follow-up');
+    assert.equal(replies[0].message_reference.message_id, parentMessage);
+    assert.equal(replies[0].message_reference.fail_if_not_exists, true);
+    assert.equal(replies[0].allowed_mentions.replied_user, false);
+    assert.equal((await prisma.destination.findUniqueOrThrow({ where: { id: followUp.id } })).state, 'PUBLISHED');
+  } finally {
+    globalThis.fetch = originalFetch;
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { id: owner.id } });
+    await prisma.$disconnect();
+  }
+});
+
+test('review-gated RSS schedules once after approval and waits when no shared slot exists', async () => {
+  const { addRssRule, savePostingSlot, scheduleReviewedRssImports, WorkspaceAccessError } = await import('@cadencedesk/data');
+  const { owner, workspace } = await createFixture();
+  const reviewer = await prisma.user.create({ data: { email: 'rss-review-' + crypto.randomUUID() + '@example.invalid' } });
+  const feed = 'https://studio.example.invalid/feed.xml';
+  process.env.RSS_ALLOWED_FEEDS = feed;
+  try {
+    await prisma.membership.create({ data: { workspaceId: workspace.id, userId: reviewer.id, role: 'REVIEWER' } });
+    const channel = await prisma.channel.create({ data: {
+      workspaceId: workspace.id, provider: 'discord', externalId: ids.good, guildId: ids.guild, name: 'announcements',
+    } });
+    await assert.rejects(addRssRule(reviewer.id, workspace.slug, 'News', feed, [channel.id]), WorkspaceAccessError);
+    await addRssRule(owner.id, workspace.slug, 'Reviewed news', feed, [channel.id]);
+    const rule = await prisma.rssRule.findFirstOrThrow({ where: { workspaceId: workspace.id } });
+    const run = await prisma.rssRun.create({ data: { ruleId: rule.id, bucket: new Date() } });
+    await recordFeedItems(run.id, [{ sourceKey: 'fixture-rss-item', content: 'The spring catalogue is ready.' }]);
+    const imported = await prisma.post.findFirstOrThrow({ where: { workspaceId: workspace.id }, include: { revisions: true } });
+    assert.equal(imported.state, 'IN_REVIEW');
+    assert.deepEqual(imported.revisions[0].channelIds, [channel.id]);
+    await scheduleReviewedRssImports();
+    assert.equal(await prisma.destination.count({ where: { postId: imported.id } }), 0);
+
+    await transitionPost(reviewer.id, workspace.slug, imported.id, 1, 'APPROVED');
+    await scheduleReviewedRssImports();
+    const blocked = await prisma.feedImport.findFirstOrThrow({ where: { postId: imported.id } });
+    assert.equal(blocked.scheduleState, 'BLOCKED');
+    assert.match(blocked.scheduleError, /No shared posting slot/);
+    await savePostingSlot(owner.id, workspace.slug, channel.id, 1, 9 * 60);
+    await prisma.feedImport.updateMany({ where: { postId: imported.id }, data: { nextScheduleAt: new Date(0) } });
+    await scheduleReviewedRssImports();
+    await scheduleReviewedRssImports();
+    const result = await prisma.post.findUniqueOrThrow({
+      where: { id: imported.id },
+      include: { destinations: { include: { outbox: true } }, feedImports: true },
+    });
+    assert.equal(result.state, 'SCHEDULED');
+    assert.equal(result.destinations.length, 1);
+    assert.equal(result.destinations[0].outbox.dueAt.getTime(), result.scheduledAt.getTime());
+    assert.equal(result.feedImports[0].scheduleState, 'SCHEDULED');
+    assert.equal((await prisma.approval.findFirstOrThrow({ where: { postId: imported.id } })).reviewerId, reviewer.id);
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.deleteMany({ where: { id: { in: [owner.id, reviewer.id] } } });
+    await prisma.$disconnect();
+  }
+});
