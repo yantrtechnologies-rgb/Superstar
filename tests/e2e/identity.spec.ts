@@ -268,3 +268,36 @@ test('analytics distinguishes a recorded zero from unavailable metrics', async (
     await prisma.$disconnect();
   }
 });
+
+test('the Studio reserves and returns credits and Automations queues an approved feed', async ({ page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  const email = `studio-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Field Notes Studio');
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
+  try {
+    await page.getByRole('link', { name: 'AI Studio' }).click();
+    await expect(page.getByText('4 credits available', { exact: true })).toBeVisible();
+    await page.getByLabel('Copy brief or text to revise').fill('Write copy for a seasonal product release.');
+    await page.getByRole('button', { name: 'Generate social copy · 4 credits' }).click();
+    await expect(page.getByRole('heading', { name: 'Social copy · queued' })).toBeVisible();
+    await expect(page.getByText('0 credits available', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel queued generation' }).click();
+    await expect(page.getByRole('heading', { name: 'Social copy · canceled' })).toBeVisible();
+    await expect(page.getByText('4 credits available', { exact: true })).toBeVisible();
+
+    await page.getByRole('link', { name: 'Automations', exact: true }).click();
+    await page.getByLabel('Rule name').fill('Community headlines');
+    await page.getByLabel('Approved HTTPS feed URL').fill('https://news.example.invalid/feed.xml');
+    await page.getByRole('button', { name: 'Add RSS rule' }).click();
+    await expect(page.getByRole('heading', { name: 'Community headlines' })).toBeVisible();
+    await page.getByRole('button', { name: 'Run now' }).click();
+    await expect(page.getByRole('list', { name: 'Recent runs' }).getByText('queued', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Pause rule' }).click();
+    await expect(page.getByText('Paused', { exact: true })).toBeVisible();
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { email } });
+    await prisma.$disconnect();
+  }
+});

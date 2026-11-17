@@ -46,3 +46,11 @@
 - Channel groups organize the agenda. Workspace membership governs channel access. The external client link limits the review surface.
 - Shared posting slots use the workspace IANA time zone and skip occupied minutes. The search skips nonexistent spring-forward times and uses the earlier occurrence in a repeated fall-back hour.
 - A Telegram refresh creates a durable job per channel per five-minute window. Zero is a recorded measurement. Unsupported providers and unsuccessful refreshes display unavailable states. Scheduled imports, post-level analytics, exports, editorial assignments and group membership permissions remain pending.
+
+## AI and automation checkpoint
+
+- The Studio uses OpenAI for social text and single-image generation. The operator configures model IDs and base credit amounts. The server reconfirms the quote before reserving credits. Job request IDs make repeated submissions idempotent within a workspace.
+- A conditional balance decrement and its ledger entry commit together. The worker claims a job once. The finalizer captures the reservation on success or refunds it on failure, queued cancellation or interrupted execution. Failed ambiguous provider calls are refunded without automatically retrying the generation. Phase 8 adds subscription and purchased-credit grants.
+- Generated images are stored under workspace-owned keys. This checkpoint makes the result downloadable from the Studio. Text and attachment transfers into the composer are manual.
+- RSS imports are limited to exact operator-configured public HTTPS feed URLs. DNS results are checked and the connection is pinned to a verified public IPv4 address. Redirects, compressed bodies, oversized documents, DTDs and entity declarations are rejected. A source item key is unique per rule, and each imported item becomes an unapproved draft.
+- AI video, transcription, clipping, publishing plugs, RSS-to-publish, webhook delivery and live AI verification remain pending.

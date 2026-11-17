@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { test } from 'node:test';
 import {
-  cancelPost, connectChannel, createWorkspace, listChannels, nextAvailableSlot, prisma, queueChannelMetric, savePost, schedulePost, transitionPost, workspaceMetrics,
+  cancelPost, connectChannel, createWorkspace, CreditBalanceError, finalizeAiJob, listChannels, queueAiJob, nextAvailableSlot, prisma, queueChannelMetric, savePost, schedulePost, transitionPost, workspaceMetrics,
 } from '@cadencedesk/data';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout } from 'node:timers/promises';
 import { dispatchOutbox, publishDestination, reconcileInterrupted } from '../dist/publish.js';
 import { collectChannelMetric, dispatchAnalytics } from '../dist/analytics.js';
+import { dispatchAiJobs, reconcileAiJobs, runAiJob } from '../dist/ai.js';
+import { importRssRun, recordFeedItems, queueDueRssRules } from '../dist/rss.js';
 
 const ids = { guild: '123456789012345670', good: '123456789012345671', bad: '123456789012345672', chat: '-1001723456789', post: '123456789012345673' };
 
@@ -64,9 +66,28 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
   const storage = await startObjectStorage();
   const providerCalls = new Map();
   let telegramMetricAvailable = true;
+  let aiRequests = 0;
+  Object.assign(process.env, {
+    OPENAI_API_KEY: 'fixture-key', OPENAI_TEXT_MODEL: 'fixture-text', OPENAI_IMAGE_MODEL: 'fixture-image',
+    AI_STARTER_CREDITS: '4', AI_TEXT_BASE_CREDITS: '2', AI_IMAGE_BASE_CREDITS: '2', AI_CREDIT_MARKUP: '2',
+  });
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input);
+    if (url.origin === 'https://api.openai.com') {
+      assert.equal(init.headers.Authorization, 'Bearer fixture-key');
+      const payload = JSON.parse(init.body);
+      aiRequests++;
+      if (url.pathname.endsWith('/responses')) {
+        assert.equal(payload.store, false);
+        assert.equal(payload.model, 'fixture-text');
+        return Response.json({ error: { code: 'fixture' } }, { status: 400, headers: { 'x-request-id': 'text-fixture' } });
+      }
+      assert.equal(payload.model, 'fixture-image');
+      return Response.json({
+        data: [{ b64_json: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jMioAAAAASUVORK5CYII=' }],
+      }, { headers: { 'x-request-id': 'image-fixture' } });
+    }
     if (url.origin === 'https://api.telegram.org') {
       assert.equal(init.method, 'POST');
       const chat = { id: Number(ids.chat), type: 'channel', title: 'Telegram announcements' };
@@ -124,7 +145,7 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
     const worker = await Worker.create({
       connection: env.nativeConnection, taskQueue: 'cadencedesk',
       workflowsPath: fileURLToPath(new URL('../dist/workflows.js', import.meta.url)),
-      activities: { publishDestination, collectChannelMetric },
+      activities: { publishDestination, collectChannelMetric, runAiJob, importRssRun },
     });
     await worker.runUntil(async () => {
       const due = new Date(Date.now() + 1200);
@@ -180,6 +201,37 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
       const memberCount = metrics.find(({ id }) => id === telegram.id);
       assert.equal(memberCount.metricJobs[0].state, 'UNAVAILABLE');
       assert.deepEqual(memberCount.snapshots.map(({ count }) => count), [0]);
+
+      const charges = await Promise.allSettled([
+        queueAiJob(owner.id, workspace.slug, 'TEXT', 'First text request', 4),
+        queueAiJob(owner.id, workspace.slug, 'TEXT', 'Second text request', 4),
+      ]);
+      const successful = charges.filter(({ status }) => status === 'fulfilled');
+      assert.equal(successful.length, 1);
+      assert.ok(charges.find(({ status }) => status === 'rejected').reason instanceof CreditBalanceError);
+      const job = successful[0].value;
+      assert.equal((await prisma.creditAccount.findUniqueOrThrow({ where: { workspaceId: workspace.id } })).available, 0);
+      const duplicate = await queueAiJob(owner.id, workspace.slug, 'TEXT', job.prompt, 4, job.requestId);
+      assert.equal(duplicate.id, job.id);
+      await Promise.all([dispatchAiJobs(env.client), dispatchAiJobs(env.client)]);
+      await env.client.workflow.getHandle('ai-' + job.id).result();
+      await finalizeAiJob(job.id, { type: 'failed', error: 'repeated finalization' });
+      const failedJob = await prisma.aiJob.findUniqueOrThrow({ where: { id: job.id } });
+      assert.equal(failedJob.state, 'FAILED');
+      assert.equal(failedJob.providerRef, 'text-fixture');
+      assert.equal(await prisma.creditEntry.count({ where: { reference: 'refund:' + job.id } }), 1);
+      assert.equal((await prisma.creditAccount.findUniqueOrThrow({ where: { workspaceId: workspace.id } })).available, 4);
+
+      const image = await queueAiJob(owner.id, workspace.slug, 'IMAGE', 'A small logo mark', 4);
+      await dispatchAiJobs(env.client);
+      await env.client.workflow.getHandle('ai-' + image.id).result();
+      const imageResult = await prisma.aiJob.findUniqueOrThrow({ where: { id: image.id }, include: { asset: true } });
+      assert.equal(imageResult.state, 'SUCCEEDED');
+      assert.equal(imageResult.providerRef, 'image-fixture');
+      assert.ok(imageResult.asset.key.startsWith('workspaces/' + workspace.id + '/assets/'));
+      assert.equal(await prisma.creditEntry.count({ where: { reference: 'capture:' + image.id } }), 1);
+      assert.equal(aiRequests, 2);
+      await reconcileAiJobs();
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -397,6 +449,52 @@ test('review link access expires, revokes, and closes after a change request', a
     assert.equal(updated.editorialComments[0].body, 'Update the launch date.');
   } finally {
     await prisma.workspace.deleteMany({ where: { id: { in: [workspace.id, other.id] } } });
+    await prisma.user.delete({ where: { id: owner.id } });
+    await prisma.$disconnect();
+  }
+});
+
+test('RSS rules queue durably, deduplicate feed items, and reject unsupported network targets', async () => {
+  const { addRssRule, allowedFeedUrl, parseFeed, publicFeedAddress, queueRssRun, setRssEnabled, RssConfigurationError } =
+    await import('@cadencedesk/data');
+  const owner = await prisma.user.create({ data: { email: 'rss-' + crypto.randomUUID() + '@example.invalid' } });
+  const workspace = await createWorkspace(owner.id, 'RSS Fixture', 'UTC');
+  const feed = 'https://updates.example.invalid/feed.xml';
+  process.env.RSS_ALLOWED_FEEDS = feed;
+  try {
+    assert.throws(() => allowedFeedUrl('https://updates.example.invalid/other.xml'), RssConfigurationError);
+    assert.throws(() => allowedFeedUrl('http://127.0.0.1/feed'), RssConfigurationError);
+    for (const value of ['127.0.0.1', '169.254.169.254', '100.64.1.1', '192.168.0.1', '0.0.0.0', '::ffff:127.0.0.1']) {
+      assert.equal(publicFeedAddress(value), false);
+    }
+    assert.equal(publicFeedAddress('8.8.8.8'), true);
+    assert.throws(() => parseFeed('<!DOCTYPE rss [<!ENTITY test "entity">]><rss/>'), RssConfigurationError);
+    const entries = parseFeed(`<rss version="2.0"><channel>
+      <item><guid isPermaLink="false">id-1</guid><title>Studio launch</title><description><![CDATA[<p>Details</p>]]></description><link>https://example.invalid/studio</link></item>
+      <item><guid>id-2</guid><title>Studio hours</title></item>
+    </channel></rss>`);
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].content, 'Studio launch\n\nDetails\n\nhttps://example.invalid/studio');
+
+    await addRssRule(owner.id, workspace.slug, 'Industry feed', feed);
+    const rule = await prisma.rssRule.findUniqueOrThrow({ where: { workspaceId_sourceUrl: { workspaceId: workspace.id, sourceUrl: feed } } });
+    await queueDueRssRules();
+    const first = await prisma.rssRun.findFirstOrThrow({ where: { ruleId: rule.id } });
+    assert.equal(await recordFeedItems(first.id, entries), 2);
+    // Move the prior run out of the current window before requesting another run.
+    await prisma.rssRun.update({ where: { id: first.id }, data: { bucket: new Date(Date.now() - 20 * 60_000) } });
+    await Promise.all([queueRssRun(owner.id, workspace.slug, rule.id), queueRssRun(owner.id, workspace.slug, rule.id)]);
+    const retry = await prisma.rssRun.findFirstOrThrow({ where: { ruleId: rule.id, state: 'QUEUED' } });
+    assert.equal(await recordFeedItems(retry.id, entries), 0);
+    assert.equal(await prisma.post.count({ where: { workspaceId: workspace.id, state: 'DRAFT' } }), 2);
+    assert.equal(await prisma.feedImport.count({ where: { ruleId: rule.id } }), 2);
+
+    const pending = await prisma.rssRun.create({ data: { ruleId: rule.id, bucket: new Date(0) } });
+    await setRssEnabled(owner.id, workspace.slug, rule.id, false);
+    await importRssRun(pending.id);
+    assert.equal((await prisma.rssRun.findUniqueOrThrow({ where: { id: pending.id } })).state, 'SKIPPED');
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
     await prisma.user.delete({ where: { id: owner.id } });
     await prisma.$disconnect();
   }

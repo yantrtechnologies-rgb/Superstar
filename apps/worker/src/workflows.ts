@@ -1,6 +1,8 @@
 import { proxyActivities, sleep } from '@temporalio/workflow';
 import type * as activities from './publish';
 import type * as analytics from './analytics';
+import type * as ai from './ai';
+import type * as rss from './rss';
 
 const { publishDestination } = proxyActivities<typeof activities>({
   startToCloseTimeout: '45 seconds',
@@ -23,4 +25,15 @@ const { collectChannelMetric } = proxyActivities<typeof analytics>({
 
 export async function refreshChannelMetric(jobId: string) {
   await collectChannelMetric(jobId);
+}
+
+const { runAiJob } = proxyActivities<typeof ai>({ startToCloseTimeout: '2 minutes', retry: { maximumAttempts: 3 } });
+const { importRssRun } = proxyActivities<typeof rss>({ startToCloseTimeout: '50 seconds', retry: { maximumAttempts: 3 } });
+
+export async function generateAiContent(jobId: string) {
+  await runAiJob(jobId);
+}
+
+export async function importRssFeed(runId: string) {
+  await importRssRun(runId);
 }

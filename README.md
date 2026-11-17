@@ -71,3 +71,11 @@ In **Posts**, select destinations and request approval. Create a client review l
 In **Channels → Channel groups and posting slots**, create groups, assign channels and add weekly times in the workspace time zone. **Use next shared slot** searches for a time configured for every approved destination. The agenda can be filtered by client group.
 
 In **Analytics**, refresh a Telegram channel to import its current member count. The worker records observations and keeps the previous values when a refresh fails. The date selector filters observation history. [Telegram getChatMemberCount](https://core.telegram.org/bots/api#getchatmembercount)
+
+## AI Studio and RSS automations
+
+Set `OPENAI_API_KEY` and the supported models for `OPENAI_TEXT_MODEL` and `OPENAI_IMAGE_MODEL`. Configure the base credit amounts separately for text and image jobs. CadenceDesk multiplies the base amount by `AI_CREDIT_MARKUP` and rounds up to the next credit. Image jobs also require the object storage settings and bucket. [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create) · [OpenAI Images API](https://developers.openai.com/api/reference/resources/images/methods/generate)
+
+Set `AI_STARTER_CREDITS` before a workspace first reserves credits to grant it a one-time starter allowance. The default is zero. Each accepted job reserves its quote. A completed generation captures the reservation, and a failed or canceled queued job returns it. The Studio shows job history and credit activity.
+
+Set `RSS_ALLOWED_FEEDS` to a comma-separated list of exact public HTTPS feed URLs. Add a rule in Automations to import a feed into drafts. Enabled rules run every 15 minutes, and owners, admins and editors can request a run manually. Imported drafts use the normal review and publishing flow.

@@ -20,6 +20,9 @@ model Workspace {
 
   clientGroups ClientGroup[]
   oauthStates OAuthState[]
+  creditAccount CreditAccount?
+  aiJobs AiJob[]
+  rssRules RssRule[]
   assets Asset[]
   channels Channel[]
   posts Post[]
@@ -159,6 +162,7 @@ model Post {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   reviewLinks ReviewLink[]
   editorialComments EditorialComment[]
+  feedImports FeedImport[]
   revisions   PostRevision[]
   destinations Destination[]
 
@@ -247,6 +251,7 @@ model Asset {
   checksum    String
   createdAt   DateTime       @default(now()) @map("created_at")
   workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  aiJobs      AiJob[]
   revisions   PostRevision[]
 
   @@index([workspaceId])
@@ -359,4 +364,123 @@ model MetricsSnapshot {
   job        MetricJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@map("metrics_snapshots")
+}
+
+enum AiKind {
+  TEXT
+  IMAGE
+}
+
+enum AiJobState {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+enum CreditEntryKind {
+  GRANT
+  RESERVE
+  CAPTURE
+  REFUND
+}
+
+model CreditAccount {
+  workspaceId String    @id @db.Uuid @map("workspace_id")
+  available   Int       @default(0)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  entries     CreditEntry[]
+
+  @@map("credit_accounts")
+}
+
+model CreditEntry {
+  id          String          @id @default(uuid()) @db.Uuid
+  workspaceId String          @db.Uuid @map("workspace_id")
+  kind        CreditEntryKind
+  delta       Int
+  reference   String          @unique
+  createdAt   DateTime        @default(now()) @map("created_at")
+  account     CreditAccount   @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@map("credit_ledger")
+}
+
+model AiJob {
+  id          String      @id @default(uuid()) @db.Uuid
+  workspaceId String      @db.Uuid @map("workspace_id")
+  requestId   String      @db.Uuid @map("request_id")
+  kind        AiKind
+  state       AiJobState  @default(QUEUED)
+  prompt      String
+  model       String
+  credits     Int
+  outputText  String?     @map("output_text")
+  assetId     String?     @db.Uuid @map("asset_id")
+  providerRef String?     @map("provider_ref")
+  error       String?
+  dispatchedAt DateTime?  @map("dispatched_at")
+  startedAt   DateTime?   @map("started_at")
+  finishedAt  DateTime?   @map("finished_at")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  asset       Asset?      @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, requestId])
+  @@index([workspaceId, createdAt])
+  @@index([dispatchedAt, createdAt])
+  @@index([state, startedAt])
+  @@map("ai_jobs")
+}
+
+enum RssRunState {
+  QUEUED
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+model RssRule {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid @map("workspace_id")
+  name        String
+  sourceUrl   String    @map("source_url")
+  enabled     Boolean   @default(true)
+  nextRunAt   DateTime  @default(now()) @map("next_run_at")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runs        RssRun[]
+  imports     FeedImport[]
+
+  @@unique([workspaceId, sourceUrl])
+  @@index([enabled, nextRunAt])
+  @@map("rss_rules")
+}
+
+model RssRun {
+  id          String      @id @default(uuid()) @db.Uuid
+  ruleId      String      @db.Uuid @map("rule_id")
+  bucket      DateTime
+  state       RssRunState @default(QUEUED)
+  imported    Int         @default(0)
+  error       String?
+  createdAt   DateTime    @default(now()) @map("created_at")
+  dispatchedAt DateTime?  @map("dispatched_at")
+  rule        RssRule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, bucket])
+  @@index([dispatchedAt, createdAt])
+  @@map("rss_runs")
+}
+
+model FeedImport {
+  ruleId      String   @db.Uuid @map("rule_id")
+  sourceKey   String   @map("source_key")
+  postId      String?  @db.Uuid @map("post_id")
+  rule        RssRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  post        Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@id([ruleId, sourceKey])
+  @@map("feed_items")
 }

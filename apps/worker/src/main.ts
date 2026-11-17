@@ -3,6 +3,8 @@ import { Client, Connection } from '@temporalio/client';
 import { prisma } from '@cadencedesk/data';
 import { createServer } from 'node:http';
 import { collectChannelMetric, dispatchAnalytics } from './analytics';
+import { dispatchAiJobs, reconcileAiJobs, runAiJob } from './ai';
+import { dispatchRssRuns, importRssRun, queueDueRssRules } from './rss';
 import { setTimeout } from 'node:timers/promises';
 import { dispatchOutbox, publishDestination, reconcileInterrupted } from './publish';
 
@@ -12,6 +14,10 @@ async function dispatch(client: Client, stop: AbortSignal) {
       await reconcileInterrupted();
       await dispatchOutbox(client);
       await dispatchAnalytics(client);
+      await reconcileAiJobs();
+      await dispatchAiJobs(client);
+      await queueDueRssRules();
+      await dispatchRssRuns(client);
     } catch {
       console.error(JSON.stringify({ event: 'publishing.outbox_poll_failed' }));
     }
@@ -36,7 +42,7 @@ async function main() {
         namespace,
         taskQueue: 'cadencedesk',
         workflowsPath: require.resolve('./workflows'),
-        activities: { publishDestination, collectChannelMetric },
+        activities: { publishDestination, collectChannelMetric, runAiJob, importRssRun },
       });
       const server = createServer((_request, response) => {
         const running = worker.getState() === 'RUNNING';
