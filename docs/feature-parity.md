@@ -1,0 +1,20 @@
+# Postiz feature parity research
+
+Observed 2026-11-17. Routes below are CadenceDesk targets. Implementation, workflows and tests are pending. The [documentation index](https://docs.postiz.com/llms.txt) and [Postiz repository](https://github.com/gitroomhq/postiz-app/tree/36d5fc7b3ac3f17178b1589cf7a7337523017a41) are the research references.
+
+| Feature | Evidence | CadenceDesk surface | Phase | Verification or dependency |
+| --- | --- | --- | --- | --- |
+| Workspace and team access | [Team members](https://docs.postiz.com/general/settings/team) | Settings, login | 2 | Documented. Test tenant isolation and invitations. |
+| Channel connection and reconnect | [Connect a channel](https://docs.postiz.com/general/channels/connect) | Channels | 3–4 | Provider scopes, approval and credentials vary. |
+| Composer, per-channel overrides, threads and comments | [Composer](https://docs.postiz.com/general/composer/overview) | Compose | 3–4 | Documented. Format and reply behavior require per-provider evidence. |
+| Calendar, filters, rescheduling and repeat posts | [Calendar](https://docs.postiz.com/general/calendar/overview), [scheduling](https://docs.postiz.com/general/composer/scheduling) | Calendar, posts | 3 | Documented. Include day view and repeat scheduling in parity review. |
+| Media library and editing | [Media library](https://docs.postiz.com/general/media-library) | Media | 3, 6 | Documented. Object storage and media workers required. |
+| Client review and comments | [Approvals](https://docs.postiz.com/general/approvals) | Review, posts | 3, 5 | Documented. Revision enforcement and assignments are CadenceDesk acceptance requirements. |
+| Client groups and posting slots | [Client groups](https://docs.postiz.com/general/channels/customers), [time slots](https://docs.postiz.com/general/channels/time-slots) | Channels, calendar | 5 | Documented. Verify channel-limited membership independently. |
+| Metrics and snapshots | [Analytics](https://docs.postiz.com/general/analytics) | Analytics | 5 | Provider metrics, scopes and retention vary. |
+| AI, clipping, RSS, plugs, third-party imports and webhooks | [Documentation index](https://docs.postiz.com/llms.txt) | Studio, automations | 6 | Provider keys, quota and supported actions require verification. |
+| Sets, signatures, notifications and developer settings | [Settings](https://docs.postiz.com/general/settings/overview) | Settings | 5, 7 | Documented surfaces. Inventory exact permissions in authenticated app. |
+| REST, onboarding links, SDK, CLI, MCP and automation clients | [Public API](https://docs.postiz.com/public-api/introduction), [documentation index](https://docs.postiz.com/llms.txt) | Settings and external clients | 7 | OAuth connection endpoint is narrower than the full connector picker. Verify embedding contracts and client access. |
+| Post exchange and paid placements | [Repository README](https://github.com/gitroomhq/postiz-app) | Pending verified workflow | 7 | README describes it. Source walkthrough, payment dependency and live availability remain pending. |
+| Hosted billing and AI usage | [Public pricing](https://postiz.com/pricing) | Pricing, billing, admin | 8 | Public plan evidence. Hosted enforcement requires authenticated testing. |
+| Self-hosting | [Documentation index](https://docs.postiz.com/llms.txt) | Operator setup | 1, 9 | Documented track. Pinned deployment and environment files still need inspection. |
