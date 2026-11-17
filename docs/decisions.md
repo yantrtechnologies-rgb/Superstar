@@ -33,3 +33,9 @@
 - Discord, Telegram and Slack use a typed provider contract for discovery, validation and publication with operator-managed bot credentials. Reconnecting refreshes destination metadata. Workspace grants are checked both on connection and before publishing.
 - The first Telegram path handles channel and supergroup text plus a single image. The first Slack path handles text with previews disabled. Telegram and Slack ambiguous writes are marked uncertain. Slack permalink lookup is a separate read after a confirmed write.
 - Account OAuth, token refresh, revocation, provider analytics, per-channel overrides and the other 32 connector variants remain open.
+
+## LinkedIn OAuth checkpoint
+
+- OAuth state expires after ten minutes, is stored as a hash, and is bound to the initiating CadenceDesk user and workspace. The callback consumes state before exchanging the code and rechecks workspace management permissions before storage.
+- Access and refresh tokens use AES-256-GCM with a random IV and workspace, channel and token-type bindings. A row lock serializes refreshes for each channel. On HTTP 401 the adapter attempts a refresh once if it has a usable refresh credential. Disconnect removes the local credential while preserving the channel and its publishing history.
+- The first LinkedIn connector supports public text posts for a member profile. It uses the self-serve Share on LinkedIn contract. Pages, document uploads, analytics and live app verification remain open.

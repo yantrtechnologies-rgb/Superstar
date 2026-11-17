@@ -6,6 +6,7 @@ import { acceptInvitationAction, createWorkspaceAction, logoutAction } from './a
 export const dynamic = 'force-dynamic';
 
 const messages: Record<string, string> = {
+  'oauth-invalid': 'The connection request expired or belongs to a different account. Start again from Channels.',
   'invalid-workspace': 'Enter a valid workspace name and IANA time zone.',
   'invalid-invitation': 'Check the invitation details and try again.',
   'invitation-unavailable': 'This invitation is unavailable for your account.',

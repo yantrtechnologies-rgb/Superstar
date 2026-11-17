@@ -1,4 +1,4 @@
-import { botToken, ProviderConfigurationError, retryAfter, type ProviderAdapter, type PublishingImage, type PublishResult } from './provider-contract';
+import { botToken, ProviderConfigurationError, retryAfter, type BotProviderAdapter, type PublishingImage, type PublishResult } from './provider-contract';
 
 const api = 'https://discord.com/api/v10';
 
@@ -6,7 +6,8 @@ function configuration(workspace: string, channelId: string) {
   return { Authorization: `Bot ${botToken(discord, workspace, channelId)}` };
 }
 
-export const discord: ProviderAdapter = {
+export const discord: BotProviderAdapter = {
+  kind: 'bot',
   name: 'Discord',
   tokenEnv: 'DISCORD_BOT_TOKEN',
   grantsEnv: 'DISCORD_WORKSPACE_CHANNELS',

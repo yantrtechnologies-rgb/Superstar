@@ -15,7 +15,7 @@ export default defineConfig({
     launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH },
   },
   webServer: {
-    command: 'node --import ./scripts/capture-resend.mjs apps/web/node_modules/next/dist/bin/next start apps/web -H 127.0.0.1 -p 3930',
+    command: 'node --import ./scripts/capture-resend.mjs --import ./scripts/mock-linkedin.mjs apps/web/node_modules/next/dist/bin/next start apps/web -H 127.0.0.1 -p 3930',
     url: baseURL + '/health',
     env: {
       APP_URL: baseURL,
@@ -24,6 +24,9 @@ export default defineConfig({
       EMAIL_FROM: 'CadenceDesk Test <test@example.invalid>',
       RESEND_API_KEY: 'playwright-only-test-key',
       CADENCEDESK_E2E_MAIL_FILE: mailFile,
+      LINKEDIN_CLIENT_ID: 'playwright-linkedin-id',
+      LINKEDIN_CLIENT_SECRET: 'playwright-linkedin-secret',
+      TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 0x23).toString('base64'),
     },
   },
 });

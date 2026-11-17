@@ -222,3 +222,100 @@ test('Slack validates capabilities and retains a confirmed write when link looku
     globalThis.fetch = originalFetch;
   }
 });
+
+test('LinkedIn OAuth binds one-time state to its actor and refreshes encrypted credentials once', async () => {
+  const {
+    beginLinkedInConnection, completeLinkedInConnection, disconnectLinkedIn, linkedInAccess,
+    providers, ProviderConfigurationError, WorkspaceAccessError,
+  } = await import('@cadencedesk/data');
+  const owner = await prisma.user.create({ data: { email: 'linkedin-owner-' + crypto.randomUUID() + '@example.invalid' } });
+  const wrongUser = await prisma.user.create({ data: { email: 'linkedin-outsider-' + crypto.randomUUID() + '@example.invalid' } });
+  const workspace = await createWorkspace(owner.id, 'LinkedIn Fixture', 'UTC');
+  const otherWorkspace = await createWorkspace(wrongUser.id, 'Other Tenant', 'UTC');
+  const originalFetch = globalThis.fetch;
+  Object.assign(process.env, {
+    LINKEDIN_CLIENT_ID: 'fixture-client',
+    LINKEDIN_CLIENT_SECRET: 'fixture-secret',
+    APP_URL: 'http://127.0.0.1:3930',
+    TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 0x19).toString('base64'),
+  });
+
+  let exchanges = 0;
+  let refreshes = 0;
+  let writes = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(input);
+    if (url.href === 'https://www.linkedin.com/oauth/v2/accessToken') {
+      const grant = init.body.get('grant_type');
+      assert.equal(init.body.get('client_id'), 'fixture-client');
+      assert.equal(init.body.get('client_secret'), 'fixture-secret');
+      if (grant === 'authorization_code') {
+        exchanges++;
+        assert.equal(init.body.get('redirect_uri'), 'http://127.0.0.1:3930/api/connect/linkedin');
+        assert.equal(init.body.get('code'), 'fixture-linkedin-code');
+        return Response.json({
+          access_token: 'fixture-initial-access', expires_in: 3600, refresh_token: 'fixture-refresh',
+          refresh_token_expires_in: 7200, scope: 'openid profile w_member_social',
+        });
+      }
+      assert.equal(grant, 'refresh_token');
+      assert.equal(init.body.get('refresh_token'), 'fixture-refresh');
+      refreshes++;
+      await setTimeout(50);
+      return Response.json({ access_token: 'fixture-refreshed-' + refreshes, expires_in: 3600 });
+    }
+    if (url.href === 'https://api.linkedin.com/v2/userinfo') {
+      assert.equal(init.headers.Authorization, 'Bearer fixture-initial-access');
+      return Response.json({ sub: 'fixture-member-01', name: 'LinkedIn Fixture Member' });
+    }
+    assert.equal(url.href, 'https://api.linkedin.com/v2/ugcPosts');
+    writes++;
+    assert.equal(JSON.parse(init.body).author, 'urn:li:person:fixture-member-01');
+    if (init.headers.Authorization === 'Bearer fixture-refreshed-1') return new Response(null, { status: 401 });
+    assert.equal(init.headers.Authorization, 'Bearer fixture-refreshed-2');
+    return new Response(null, { status: 201, headers: { 'x-restli-id': 'urn:li:ugcPost:1234567890123456789' } });
+  };
+  try {
+    await assert.rejects(beginLinkedInConnection(wrongUser.id, workspace.slug), WorkspaceAccessError);
+    const authUrl = new URL(await beginLinkedInConnection(owner.id, workspace.slug));
+    assert.equal(authUrl.origin, 'https://www.linkedin.com');
+    assert.equal(authUrl.searchParams.get('scope'), 'openid profile w_member_social');
+    const state = authUrl.searchParams.get('state');
+    assert.ok(state);
+    assert.equal(await prisma.oAuthState.findUnique({ where: { hash: state } }), null);
+    await assert.rejects(completeLinkedInConnection(wrongUser.id, state, 'fixture-linkedin-code'), ProviderConfigurationError);
+    assert.equal(exchanges, 0);
+    assert.deepEqual(await completeLinkedInConnection(owner.id, state, 'fixture-linkedin-code'), { slug: workspace.slug, connected: true });
+    await assert.rejects(completeLinkedInConnection(owner.id, state, 'fixture-linkedin-code'), ProviderConfigurationError);
+    assert.equal(exchanges, 1);
+
+    const channel = await prisma.channel.findFirstOrThrow({ where: { workspaceId: workspace.id } });
+    const encrypted = await prisma.providerCredential.findUniqueOrThrow({ where: { channelId: channel.id } });
+    assert.ok(encrypted.accessToken.startsWith('v1.'));
+    assert.ok(!encrypted.accessToken.includes('fixture-initial-access'));
+    assert.ok(!encrypted.refreshToken.includes('fixture-refresh'));
+    assert.equal(await linkedInAccess(channel.id, otherWorkspace.id), null);
+
+    await prisma.providerCredential.update({
+      where: { channelId: channel.id }, data: { accessExpiresAt: new Date(Date.now() - 1000) },
+    });
+    const concurrent = await Promise.all([linkedInAccess(channel.id, workspace.id), linkedInAccess(channel.id, workspace.id)]);
+    assert.deepEqual(concurrent.map(({ access }) => access), ['fixture-refreshed-1', 'fixture-refreshed-1']);
+    assert.equal(refreshes, 1);
+    const published = await providers.linkedin.publish(workspace.slug, channel, 'nonce', 'Hello from CadenceDesk');
+    assert.equal(published.kind, 'published');
+    assert.equal(published.externalId, 'urn:li:ugcPost:1234567890123456789');
+    assert.equal(writes, 2);
+    assert.equal(refreshes, 2);
+
+    await assert.rejects(disconnectLinkedIn(wrongUser.id, workspace.slug, channel.id), WorkspaceAccessError);
+    await disconnectLinkedIn(owner.id, workspace.slug, channel.id);
+    assert.equal(await linkedInAccess(channel.id, workspace.id), null);
+    assert.equal(await prisma.channel.count({ where: { id: channel.id } }), 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await prisma.workspace.deleteMany({ where: { id: { in: [workspace.id, otherWorkspace.id] } } });
+    await prisma.user.deleteMany({ where: { id: { in: [owner.id, wrongUser.id] } } });
+    await prisma.$disconnect();
+  }
+});

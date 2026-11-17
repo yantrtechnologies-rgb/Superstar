@@ -5,3 +5,4 @@ export * from './publishing';
 export * from './assets';
 export * from './provider-contract';
 export * from './providers';
+export * from './linkedin-connection';

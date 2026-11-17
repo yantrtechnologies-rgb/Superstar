@@ -1,4 +1,4 @@
-import { botToken, ProviderConfigurationError, retryAfter, type ProviderAdapter } from './provider-contract';
+import { botToken, ProviderConfigurationError, retryAfter, type BotProviderAdapter } from './provider-contract';
 
 function auth(workspace: string, destinationId: string) {
   return { Authorization: `Bearer ${botToken(slack, workspace, destinationId)}` };
@@ -31,7 +31,8 @@ function slackPermalink(value: string | undefined) {
   }
 }
 
-export const slack: ProviderAdapter = {
+export const slack: BotProviderAdapter = {
+  kind: 'bot',
   name: 'Slack',
   tokenEnv: 'SLACK_BOT_TOKEN',
   grantsEnv: 'SLACK_WORKSPACE_CHANNELS',

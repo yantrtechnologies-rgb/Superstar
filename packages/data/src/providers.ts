@@ -1,9 +1,10 @@
 import { discord } from './discord';
+import { linkedin } from './linkedin';
 import { ProviderConfigurationError, type ProviderAdapter, type ProviderId } from './provider-contract';
 import { slack } from './slack';
 import { telegram } from './telegram';
 
-export const providers: Record<ProviderId, ProviderAdapter> = { discord, telegram, slack };
+export const providers: Record<ProviderId, ProviderAdapter> = { discord, telegram, slack, linkedin };
 
 export function getProvider(id: string): ProviderAdapter | undefined {
   return Object.hasOwn(providers, id) ? providers[id as ProviderId] : undefined;

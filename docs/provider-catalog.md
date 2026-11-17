@@ -5,7 +5,7 @@ Inventory from the brief, with known destination distinctions to verify. Researc
 | Connector | Destination or behavior to verify |
 | --- | --- |
 | X | Account, threads and media |
-| LinkedIn profiles | Pending. Member publishing uses `w_member_social`. The organic document post is supported through the Posts API. [LinkedIn Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api) |
+| LinkedIn profiles | OAuth and public text publishing implemented through the self-serve Share on LinkedIn API. Requires Share on LinkedIn and OpenID Connect products, a registered redirect and `w_member_social`. Programmatic refresh depends on LinkedIn eligibility. Document posts and live verification are pending. [Member publishing](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/share-on-linkedin) · [Refresh tokens](https://learn.microsoft.com/en-us/linkedin/shared/authentication/programmatic-refresh-tokens) |
 | LinkedIn Pages | Pending. Organization publishing uses `w_organization_social` and a supported Page role. Organic documents and sponsored Carousel are separate request types. [LinkedIn Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api) |
 | Reddit | Subreddit posting, flair and title |
 | Instagram via Facebook | Pending. Facebook Page token and linked professional account. Graph host, Page publishing authorization and applicable scopes differ from Instagram Login. Media uses container creation, a status check and publication. [Meta Content Publishing](https://developers.facebook.com/documentation/instagram-platform/content-publishing) |

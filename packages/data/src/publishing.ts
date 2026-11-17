@@ -25,7 +25,7 @@ export async function connectChannel(userId: string, slug: string, providerId: P
   const scoped = await requireScope(prisma, userId, slug);
   if (!canManageTeam(scoped.role)) throw new WorkspaceAccessError('You cannot connect channels.');
   const provider = getProvider(providerId);
-  if (!provider) throw new ProviderConfigurationError('This provider is unavailable.');
+  if (!provider || provider.kind !== 'bot') throw new ProviderConfigurationError('Use the provider authorization flow.');
   const channel = await provider.discover(slug, channelId);
   return prisma.$transaction(async (tx) => {
     const { workspaceId, role } = await requireScope(tx, userId, slug);
@@ -43,6 +43,7 @@ export function listChannels(userId: string, slug: string) {
   return prisma.channel.findMany({
     where: { workspace: { slug, memberships: { some: { userId } } } },
     orderBy: { name: 'asc' },
+    include: { credential: { select: { accessExpiresAt: true, revokedAt: true } } },
   });
 }
 

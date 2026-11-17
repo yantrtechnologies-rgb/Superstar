@@ -1,7 +1,7 @@
 'use server';
 
 import {
-  AssetStorageError, cancelPost, connectChannel, ProviderConfigurationError, imageLimit, providerIds, providers, savePost, schedulePost,
+  AssetStorageError, beginLinkedInConnection, cancelPost, connectChannel, disconnectLinkedIn, ProviderConfigurationError, imageLimit, providerIds, providers, savePost, schedulePost,
   transitionPost, WorkspaceAccessError,
 } from '@cadencedesk/data';
 import { redirect } from 'next/navigation';
@@ -35,7 +35,9 @@ function postFields(form: FormData) {
 export async function connectChannelAction(form: FormData) {
   await run(form, 'channels', (actor, slug) => {
     const provider = z.enum(providerIds).parse(form.get('provider'));
-    const channel = z.string().trim().regex(providers[provider].destinationPattern).parse(form.get('channel'));
+    const adapter = providers[provider];
+    if (adapter.kind !== 'bot') throw new ProviderConfigurationError('Use the provider authorization flow.');
+    const channel = z.string().trim().regex(adapter.destinationPattern).parse(form.get('channel'));
     return connectChannel(actor, slug, provider, channel);
   });
 }
@@ -83,4 +85,15 @@ export async function schedulePostAction(form: FormData) {
 
 export async function cancelPostAction(form: FormData) {
   await run(form, 'posts', (actor, slug) => cancelPost(actor, slug, postFields(form).postId));
+}
+
+export async function startLinkedInAction(form: FormData) {
+  await run(form, 'channels', async (actor, slug) => redirect(await beginLinkedInConnection(actor, slug)));
+}
+
+export async function disconnectLinkedInAction(form: FormData) {
+  await run(form, 'channels', async (actor, slug) => {
+    await disconnectLinkedIn(actor, slug, z.uuid().parse(form.get('channelId')));
+    redirect(`/app/${slug}/channels?status=disconnected`);
+  });
 }

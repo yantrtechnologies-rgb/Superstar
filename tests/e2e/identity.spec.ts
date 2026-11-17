@@ -138,3 +138,32 @@ test('compose, approve and schedule a post from the workspace on mobile', async 
     await prisma.$disconnect();
   }
 });
+
+test('connect and disconnect a LinkedIn profile through the OAuth callback', async ({ page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  const email = `oauth-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'LinkedIn Test Workspace');
+  const slug = path.split('/').at(-1);
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug } });
+  try {
+    await page.route(/^https:\/\/www\.linkedin\.com\/oauth\/v2\/authorization\?/, async (route) => {
+      const authorization = new URL(route.request().url());
+      const callback = new URL(authorization.searchParams.get('redirect_uri')!);
+      expect(callback.pathname).toBe('/api/connect/linkedin');
+      callback.searchParams.set('state', authorization.searchParams.get('state')!);
+      callback.searchParams.set('code', 'playwright-linkedin-code');
+      await route.fulfill({ status: 303, headers: { Location: callback.href }, body: '' });
+    });
+    await page.getByRole('link', { name: 'Channels', exact: true }).click();
+    await page.getByRole('button', { name: 'Authorize or reconnect LinkedIn' }).click();
+    await expect(page.getByRole('status')).toHaveText('Channel connected.');
+    await expect(page.getByText('Authorized', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Disconnect Browser Fixture Member' }).click();
+    await expect(page.getByText('Reconnect required', { exact: true })).toBeVisible();
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { email } });
+    await prisma.$disconnect();
+  }
+});

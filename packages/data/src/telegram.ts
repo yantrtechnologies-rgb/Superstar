@@ -1,4 +1,4 @@
-import { botToken, ProviderConfigurationError, retryAfter, type ProviderAdapter } from './provider-contract';
+import { botToken, ProviderConfigurationError, retryAfter, type BotProviderAdapter } from './provider-contract';
 
 type TelegramChat = { id?: number; type?: string; title?: string };
 type TelegramResponse<T> = { ok?: boolean; result?: T; error_code?: number; parameters?: { retry_after?: number } };
@@ -11,7 +11,8 @@ function endpoint(workspace: string, destinationId: string, method: 'getChat' | 
   return `https://api.telegram.org/bot${token}/${method}`;
 }
 
-export const telegram: ProviderAdapter = {
+export const telegram: BotProviderAdapter = {
+  kind: 'bot',
   name: 'Telegram',
   tokenEnv: 'TELEGRAM_BOT_TOKEN',
   grantsEnv: 'TELEGRAM_WORKSPACE_CHATS',

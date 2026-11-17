@@ -1,4 +1,4 @@
-export const providerIds = ['discord', 'telegram', 'slack'] as const;
+export const providerIds = ['discord', 'telegram', 'slack', 'linkedin'] as const;
 export type ProviderId = (typeof providerIds)[number];
 
 export class ProviderConfigurationError extends Error {}
@@ -9,23 +9,34 @@ export type PublishResult =
   | { kind: 'failed' | 'uncertain'; error: string };
 
 export type PublishingImage = { bytes: Uint8Array<ArrayBuffer>; type: string };
-export type ProviderAdapter = {
+type PublishingProvider = {
   name: string;
-  tokenEnv: string;
-  grantsEnv: string;
-  destinationLabel: string;
-  destinationPattern: RegExp;
   textLimit: number;
   imageCaptionLimit: number | null;
   connectionHelp: string;
-  discover(workspace: string, destinationId: string): Promise<{ name: string; guildId?: string }>;
   publish(
-    workspace: string, channel: { externalId: string; guildId: string | null },
+    workspace: string, channel: { id: string; workspaceId: string; externalId: string; guildId: string | null },
     nonce: string, content: string, image?: PublishingImage,
   ): Promise<PublishResult>;
 };
 
-export function botToken(adapter: ProviderAdapter, workspace: string, destinationId: string) {
+export type BotProviderAdapter = PublishingProvider & {
+  kind: 'bot';
+  tokenEnv: string;
+  grantsEnv: string;
+  destinationLabel: string;
+  destinationPattern: RegExp;
+  discover(workspace: string, destinationId: string): Promise<{ name: string; guildId?: string }>;
+};
+
+export type OAuthProviderAdapter = PublishingProvider & {
+  kind: 'oauth';
+  configured(): boolean;
+};
+
+export type ProviderAdapter = BotProviderAdapter | OAuthProviderAdapter;
+
+export function botToken(adapter: BotProviderAdapter, workspace: string, destinationId: string) {
   const token = process.env[adapter.tokenEnv];
   const encoded = process.env[adapter.grantsEnv];
   if (!token || !encoded) throw new ProviderConfigurationError(`${adapter.name} requires operator configuration.`);

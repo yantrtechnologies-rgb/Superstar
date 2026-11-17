@@ -18,6 +18,7 @@ model Workspace {
   invitations Invitation[]
   auditEvents AuditEvent[]
 
+  oauthStates OAuthState[]
   assets Asset[]
   channels Channel[]
   posts Post[]
@@ -40,6 +41,7 @@ model User {
   emailVerified DateTime?    @map("email_verified")
   image         String?
   sessions      Session[]
+  oauthStates   OAuthState[]
   memberships   Membership[]
   sentInvites   Invitation[]
   auditEvents   AuditEvent[]
@@ -136,6 +138,7 @@ model Channel {
   name        String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   destinations Destination[]
+  credential   ProviderCredential?
 
   @@unique([workspaceId, provider, externalId])
   @@map("channels")
@@ -239,4 +242,29 @@ model Asset {
 
   @@index([workspaceId])
   @@map("assets")
+}
+
+model OAuthState {
+  hash        String    @id
+  userId      String    @db.Uuid @map("user_id")
+  workspaceId String    @db.Uuid @map("workspace_id")
+  provider    String
+  expiresAt   DateTime  @map("expires_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("oauth_states")
+}
+
+model ProviderCredential {
+  channelId        String    @id @db.Uuid @map("channel_id")
+  accessToken      String    @map("access_token")
+  accessExpiresAt  DateTime  @map("access_expires_at")
+  refreshToken     String?   @map("refresh_token")
+  refreshExpiresAt DateTime? @map("refresh_expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  channel          Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@map("provider_credentials")
 }
