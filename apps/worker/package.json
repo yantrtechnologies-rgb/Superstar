@@ -1,0 +1,12 @@
+{
+  "name": "@cadencedesk/worker",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@temporalio/worker": "^1.13.0"
+  }
+}
