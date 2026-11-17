@@ -81,3 +81,7 @@
 - Rate limiting uses an atomic Redis counter for each key and minute. API readiness requires PostgreSQL and Redis. A request receives 503 when the rate-limit cache is unavailable.
 - The workspace TypeScript SDK validates shared REST contracts. The CLI emits JSON, and the local stdio MCP server binds to one workspace and one scoped key. Both use the same SDK and server approval checks.
 - Hosted MCP, public SDK distribution, embedded onboarding and the partnership workflow remain pending.
+
+## Partnership scope
+
+- The pinned reference retains marketplace data structures and README copy. The callable listing, offer, review and fulfillment path could not be verified. Defer partnership entities and UI until an evidenced reference workflow or an owner-approved standalone specification is available. Any paid placement flow requires distinct payment configuration and test-mode settlement evidence.
