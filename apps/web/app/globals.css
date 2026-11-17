@@ -5,3 +5,82 @@ body {
   color: #202623;
   font-family: Geist, Inter, system-ui, sans-serif;
 }
+
+.identity-shell {
+  display: grid;
+  gap: 1.25rem;
+  width: min(100% - 2rem, 34rem);
+  margin: 4rem auto;
+  padding: clamp(1.25rem, 5vw, 2.5rem);
+  background: white;
+  border: 1px solid #dddfd7;
+  border-radius: 1rem;
+}
+
+.wordmark { font-weight: 700; letter-spacing: -0.02em; }
+.identity-shell h1, .workspace-shell h1 {
+  font-size: clamp(1.9rem, 5vw, 3rem);
+  line-height: 1.05;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+.identity-shell h2, .workspace-shell h2 { margin: 1rem 0; font-weight: 650; }
+.identity-form { display: grid; gap: .65rem; max-width: 26rem; }
+.identity-form label { font-size: .875rem; font-weight: 650; }
+.identity-form input, .identity-form select {
+  width: 100%;
+  border: 1px solid #777f77;
+  border-radius: .5rem;
+  padding: .65rem .75rem;
+  background: #fff;
+  color: #202623;
+}
+.identity-form p { font-size: .875rem; }
+.primary, .workspace-shell button, .identity-shell button {
+  display: inline-block;
+  width: fit-content;
+  padding: .65rem 1rem;
+  border: 1px solid transparent;
+  border-radius: .5rem;
+  background: #acf0d3;
+  color: #153c2f;
+  font-weight: 650;
+  cursor: pointer;
+  text-decoration: none;
+}
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid #31806a;
+  outline-offset: 3px;
+}
+.identity-shell a:not(.primary), .workspace-shell a { text-decoration: underline; text-underline-offset: 3px; }
+.workspaces-list { display: grid; gap: .5rem; margin-block: .75rem; }
+.workspaces-list li, .workspace-details div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: .75rem;
+  border-bottom: 1px solid #dddfd7;
+  padding-block: .75rem;
+  overflow-wrap: anywhere;
+}
+.workspace-shell { display: grid; grid-template-columns: 15rem minmax(0, 1fr); min-height: 100vh; }
+.workspace-shell aside {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  background: #232a27;
+  color: #f6f5f0;
+  overflow-wrap: anywhere;
+}
+.workspace-shell nav { display: grid; gap: .5rem; }
+.workspace-shell nav h2 { margin: 0; font-size: .875rem; }
+.workspace-shell nav [aria-current] { color: #acf0d3; font-weight: 650; }
+.workspace-shell main { padding: clamp(1.25rem, 5vw, 4rem); overflow-wrap: anywhere; }
+.workspace-details { margin: 1.5rem 0; max-width: 32rem; }
+.workspace-details dt { font-weight: 600; }
+
+@media (max-width: 40rem) {
+  .identity-shell { margin: 1rem auto; }
+  .workspace-shell { grid-template-columns: minmax(0, 1fr); }
+}

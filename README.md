@@ -31,3 +31,11 @@ pnpm build
 ```
 
 For a host-run process, export its environment variables from the settings in `.env.example`. The Compose file supplies container-specific values.
+
+## Sign-in and team access
+
+For real email delivery, copy `.env.example` to `.env` for Compose. Set `APP_URL` to the public application origin, `AUTH_SECRET` to a random secret, `EMAIL_FROM` to a verified Resend sender, and `RESEND_API_KEY` to a sending key. Compose sets `AUTH_URL` from `APP_URL`. For a host-run web process, export both URLs with the same value. For public deployments, use HTTPS.
+
+Open `/login` and sign in with the link from your inbox. Create a workspace at `/app`. The workspace owner can open Team settings and invite a teammate. The recipient signs in using the invited address and accepts from the workspace directory.
+
+To run the identity browser test, configure `DATABASE_URL` for a dedicated test database, apply migrations, build, run `pnpm exec playwright install chromium`, then run `pnpm exec playwright test`. The test server captures outbound Resend messages locally.

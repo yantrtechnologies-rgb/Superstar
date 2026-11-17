@@ -11,7 +11,11 @@ x-application: &application
     OBJECT_STORAGE_ACCESS_KEY: cadencedesk
     OBJECT_STORAGE_SECRET_KEY: cadencedesk-local
     APP_MODE: self-hosted
-    APP_URL: http://localhost:3000
+    APP_URL: ${APP_URL:-http://localhost:3000}
+    AUTH_URL: ${APP_URL:-http://localhost:3000}
+    AUTH_SECRET: ${AUTH_SECRET:-}
+    RESEND_API_KEY: ${RESEND_API_KEY:-}
+    EMAIL_FROM: ${EMAIL_FROM:-}
 
 services:
   postgres:
@@ -71,6 +75,9 @@ services:
   web:
     <<: *application
     command: ["pnpm", "--filter", "@cadencedesk/web", "start"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:3000:3000"
   api:

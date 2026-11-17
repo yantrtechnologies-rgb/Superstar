@@ -9,14 +9,20 @@
     "start": "next start -H 0.0.0.0"
   },
   "dependencies": {
+    "@auth/prisma-adapter": "^2.11.3",
+    "@cadencedesk/data": "workspace:*",
     "next": "16.4.6",
+    "next-auth": "5.0.0-beta.32",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-email": "^6.11.14",
+    "resend": "^6.38.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@tailwindcss/postcss": "^4.1.0",
     "tailwindcss": "^4.1.0"
   }
 }

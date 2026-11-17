@@ -12,3 +12,10 @@
 - Compose uses one development application image for the web, API, worker and migration command. Migration completion gates API startup, and Temporal health gates worker startup.
 - The first migration establishes workspace identity and slugs. Memberships, sessions and invitations are scheduled for Phase 2.
 - The web uses a branded landing page and health route. Redis and S3-compatible storage are provisioned for later integration. The worker polls the CadenceDesk task queue for an internal probe activity.
+
+## Workspace identity
+
+- Auth.js uses database-backed sessions and one-use, 15-minute magic links. Phase 2 uses the Prisma adapter and Resend delivery with branded React Email templates.
+- Workspace selection uses the route slug. The server derives the actor from the session and scopes each lookup to its membership. New workspaces receive an owner and an audit event in the create transaction.
+- Invitations are tied to a verified email and expire after seven days. Accepting an invitation creates membership and records the audit event in a transaction. Failed email delivery leaves the invitation available to the intended recipient and the sender can retry.
+- Owners can invite admins, editors, reviewers and viewers. Admins can invite editors, reviewers and viewers. All workspace members can view the team roster and their own workspace overview. Feature commands will add their capability checks as their surfaces ship.

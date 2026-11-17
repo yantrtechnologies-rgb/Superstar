@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-6 py-16 sm:px-12">
@@ -8,7 +10,7 @@ export default function Home() {
       <p className="mt-6 max-w-xl text-lg leading-relaxed">
         Plan content, review drafts with clients, and schedule posts for each channel.
       </p>
-      <p className="mt-10 text-sm text-stone-700">Workspace access will open once sign-in is configured.</p>
+      <Link href="/login" className="primary mt-10 self-start">Sign in to CadenceDesk</Link>
     </main>
   );
 }

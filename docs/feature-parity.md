@@ -1,10 +1,10 @@
 # Postiz feature parity research
 
-Observed 2026-11-17. Routes below are CadenceDesk targets. Implementation, workflows and tests are pending. The [documentation index](https://docs.postiz.com/llms.txt) and [Postiz repository](https://github.com/gitroomhq/postiz-app/tree/36d5fc7b3ac3f17178b1589cf7a7337523017a41) are the research references.
+Observed 2026-11-17. Routes below are CadenceDesk targets. Verification is recorded per feature. The [documentation index](https://docs.postiz.com/llms.txt) and [Postiz repository](https://github.com/gitroomhq/postiz-app/tree/36d5fc7b3ac3f17178b1589cf7a7337523017a41) are the research references.
 
 | Feature | Evidence | CadenceDesk surface | Phase | Verification or dependency |
 | --- | --- | --- | --- | --- |
-| Workspace and team access | [Team members](https://docs.postiz.com/general/settings/team) | Settings, login | 2 | Documented. Test tenant isolation and invitations. |
+| Workspace and team access | [Team members](https://docs.postiz.com/general/settings/team) | /app, /app/[workspace]/settings, /login | 2 | Implemented and exercised in [identity Playwright tests](../tests/e2e/identity.spec.ts). Live Resend requires a verified sender and sending key. |
 | Channel connection and reconnect | [Connect a channel](https://docs.postiz.com/general/channels/connect) | Channels | 3–4 | Provider scopes, approval and credentials vary. |
 | Composer, per-channel overrides, threads and comments | [Composer](https://docs.postiz.com/general/composer/overview) | Compose | 3–4 | Documented. Format and reply behavior require per-provider evidence. |
 | Calendar, filters, rescheduling and repeat posts | [Calendar](https://docs.postiz.com/general/calendar/overview), [scheduling](https://docs.postiz.com/general/composer/scheduling) | Calendar, posts | 3 | Documented. Include day view and repeat scheduling in parity review. |
