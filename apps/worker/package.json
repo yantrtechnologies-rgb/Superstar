@@ -4,7 +4,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "start:media": "node dist/media-main.js"
   },
   "dependencies": {
     "@cadencedesk/data": "workspace:*",

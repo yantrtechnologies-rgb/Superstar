@@ -50,3 +50,11 @@ export async function deliverPublishedWebhook(id: string) {
     delay = await deliverWebhook(id);
   }
 }
+
+const { processMediaClip } = proxyActivities<{ processMediaClip(id: string): Promise<void> }>({
+  taskQueue: 'cadencedesk-media', startToCloseTimeout: '2 minutes', retry: { maximumAttempts: 3 },
+});
+
+export async function generateMediaClip(jobId: string) {
+  await processMediaClip(jobId);
+}

@@ -1,4 +1,4 @@
-import { AssetStorageError, readImage, studioAsset } from '@cadencedesk/data';
+import { AssetStorageError, readImage, readVideo, studioAsset } from '@cadencedesk/data';
 import { z } from 'zod';
 import { requireUser } from '../../../../../../lib/require-user';
 
@@ -9,14 +9,15 @@ export async function GET(_request: Request, { params }: { params: Promise<{ wor
   const asset = await studioAsset(user.id, workspace, id);
   if (!asset) return new Response(null, { status: 404 });
   try {
-    const image = await readImage(asset, asset.workspaceId);
-    const extension = asset.type === 'image/png' ? 'png' : 'jpg';
-    return new Response(image, {
+    const video = asset.type === 'video/mp4';
+    const media = await (video ? readVideo : readImage)(asset, asset.workspaceId);
+    const extension = video ? 'mp4' : asset.type === 'image/png' ? 'png' : 'jpg';
+    return new Response(media, {
       headers: {
         'Cache-Control': 'private, no-store',
         'Content-Type': asset.type,
         'X-Content-Type-Options': 'nosniff',
-        'Content-Disposition': `attachment; filename="cadencedesk-image.${extension}"`,
+        'Content-Disposition': `attachment; filename="cadencedesk-${video ? 'video' : 'image'}.${extension}"`,
       },
     });
   } catch (error) {

@@ -3,6 +3,7 @@ import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export const imageLimit = 2 * 1024 * 1024;
+export const videoLimit = 20 * 1024 * 1024;
 export class AssetStorageError extends Error {}
 
 function storage() {
@@ -11,7 +12,7 @@ function storage() {
   const secretAccessKey = process.env.OBJECT_STORAGE_SECRET_KEY;
   const bucket = process.env.OBJECT_STORAGE_BUCKET;
   if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
-    throw new AssetStorageError('Image storage requires operator configuration.');
+    throw new AssetStorageError('Object storage requires operator configuration.');
   }
   return {
     bucket,
@@ -33,9 +34,36 @@ function imageType(bytes: Uint8Array<ArrayBuffer>) {
   throw new AssetStorageError('Choose a PNG or JPEG image.');
 }
 
-export async function uploadImage(workspaceId: string, bytes: Uint8Array<ArrayBuffer>) {
+function videoType(bytes: Uint8Array<ArrayBuffer>) {
+  if (bytes.length < 16 || bytes.length > videoLimit) throw new AssetStorageError('Choose an MP4 video up to 20 MiB.');
+  const header = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const boxSize = header.getUint32(0);
+  if (header.getUint32(4) !== 0x66747970 || boxSize < 16 || boxSize > Math.min(4096, bytes.length)) {
+    throw new AssetStorageError('Choose a valid MP4 video.');
+  }
+  return 'video/mp4';
+}
+
+export function assetStorageConfigured() {
+  return [
+    process.env.OBJECT_STORAGE_ENDPOINT,
+    process.env.OBJECT_STORAGE_BUCKET,
+    process.env.OBJECT_STORAGE_ACCESS_KEY,
+    process.env.OBJECT_STORAGE_SECRET_KEY,
+  ].every(Boolean);
+}
+
+export function uploadImage(workspaceId: string, bytes: Uint8Array<ArrayBuffer>) {
   const type = imageType(bytes);
-  const key = `workspaces/${workspaceId}/assets/${randomUUID()}.${type === 'image/png' ? 'png' : 'jpg'}`;
+  return uploadAsset(workspaceId, bytes, type, type === 'image/png' ? 'png' : 'jpg');
+}
+
+export function uploadVideo(workspaceId: string, bytes: Uint8Array<ArrayBuffer>) {
+  return uploadAsset(workspaceId, bytes, videoType(bytes), 'mp4');
+}
+
+async function uploadAsset(workspaceId: string, bytes: Uint8Array<ArrayBuffer>, type: string, extension: string) {
+  const key = `workspaces/${workspaceId}/assets/${randomUUID()}.${extension}`;
   const { client, bucket } = storage();
   try {
     const url = await getSignedUrl(client, new PutObjectCommand({
@@ -45,17 +73,29 @@ export async function uploadImage(workspaceId: string, bytes: Uint8Array<ArrayBu
       method: 'PUT', body: bytes, headers: { 'Content-Type': type },
       redirect: 'error', signal: AbortSignal.timeout(15_000),
     });
-    if (!response.ok) throw new AssetStorageError('The image upload was rejected by object storage.');
+    if (!response.ok) throw new AssetStorageError('The upload was rejected by object storage.');
     return { key, type, size: bytes.length, checksum: createHash('sha256').update(bytes).digest('hex') };
   } catch {
-    throw new AssetStorageError('Image storage is unavailable. Check storage settings and bucket access.');
+    throw new AssetStorageError('Object storage is unavailable. Check storage settings and bucket access.');
   } finally {
     client.destroy();
   }
 }
 
-export async function readImage(asset: { key: string; type: string; size: number; checksum: string }, workspaceId: string) {
-  if (!asset.key.startsWith(`workspaces/${workspaceId}/assets/`) || asset.size > imageLimit || asset.size < 1) {
+type StoredAsset = { key: string; type: string; size: number; checksum: string };
+
+export function readImage(asset: StoredAsset, workspaceId: string) {
+  return readAsset(asset, workspaceId, imageLimit, imageType);
+}
+
+export function readVideo(asset: StoredAsset, workspaceId: string) {
+  return readAsset(asset, workspaceId, videoLimit, videoType);
+}
+
+async function readAsset(
+  asset: StoredAsset, workspaceId: string, limit: number, format: (bytes: Uint8Array<ArrayBuffer>) => string,
+) {
+  if (!asset.key.startsWith(`workspaces/${workspaceId}/assets/`) || asset.size > limit || asset.size < 1) {
     throw new AssetStorageError('The attachment is unavailable.');
   }
   const { client, bucket } = storage();
@@ -69,7 +109,7 @@ export async function readImage(asset: { key: string; type: string; size: number
       throw new AssetStorageError('The stored attachment size changed.');
     }
     const bytes = new Uint8Array(await result.Body.transformToByteArray());
-    if (bytes.length !== asset.size || imageType(bytes) !== asset.type
+    if (bytes.length !== asset.size || format(bytes) !== asset.type
       || createHash('sha256').update(bytes).digest('hex') !== asset.checksum) {
       throw new AssetStorageError('The stored attachment failed validation.');
     }

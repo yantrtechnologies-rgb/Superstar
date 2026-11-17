@@ -610,3 +610,106 @@ test('webhook pause and secret rotation protect queued deliveries and preserve h
     await prisma.$disconnect();
   }
 });
+
+test('the media queue clips a real MP4 and the transcription job captures its credit reservation', { timeout: 180_000 }, async () => {
+  const {
+    CreditBalanceError, queueClip, queueTranscription, readVideo, saveStudioVideo, studioHistory, WorkspaceAccessError,
+  } = await import('@cadencedesk/data');
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtemp, readFile, rm, rmdir } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { processMediaClip } = await import('../dist/clip.js');
+  const directory = await mkdtemp(join(tmpdir(), 'cadencedesk-studio-test-'));
+  const sample = join(directory, 'sample.mp4');
+  const { owner, workspace } = await createFixture();
+  const other = await createWorkspace(owner.id, 'Other Video Workspace', 'UTC');
+  const storage = await startObjectStorage();
+  const originalFetch = globalThis.fetch;
+  Object.assign(process.env, {
+    MEDIA_CLIPPING_ENABLED: 'true', OPENAI_API_KEY: 'fixture-transcription-key',
+    OPENAI_TRANSCRIBE_MODEL: 'fixture-transcribe', AI_TRANSCRIBE_BASE_CREDITS: '2', AI_CREDIT_MARKUP: '2',
+    AI_STARTER_CREDITS: '4',
+  });
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    if (url.href !== 'https://api.openai.com/v1/audio/transcriptions') return originalFetch(input, init);
+    assert.equal(init.headers.Authorization, 'Bearer fixture-transcription-key');
+    assert.equal(init.body.get('model'), 'fixture-transcribe');
+    assert.equal(init.body.get('response_format'), 'json');
+    const file = init.body.get('file');
+    assert.equal(file.type, 'video/mp4');
+    assert.equal(file.name, 'workspace-video.mp4');
+    assert.ok(file.size > 16);
+    return Response.json({ text: 'The studio opens on Tuesday.' }, { headers: { 'x-request-id': 'transcript-fixture' } });
+  };
+
+  let env;
+  let mediaWorker;
+  let mediaRun;
+  try {
+    execFileSync(process.env.FFMPEG_PATH ?? 'ffmpeg', [
+      '-nostdin', '-hide_banner', '-loglevel', 'error',
+      '-f', 'lavfi', '-i', 'color=c=lime:s=320x180:r=24',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100',
+      '-t', '4', '-c:v', 'libx264', '-threads', '2', '-c:a', 'aac', '-movflags', '+faststart', sample,
+    ], { timeout: 30_000, windowsHide: true });
+    const bytes = Uint8Array.from(await readFile(sample));
+    const asset = await saveStudioVideo(owner.id, workspace.slug, 'studio-source.mp4', bytes);
+    assert.equal(asset.type, 'video/mp4');
+    await assert.rejects(queueClip(owner.id, other.slug, asset.id, 0, 1), WorkspaceAccessError);
+    await assert.rejects(queueClip(owner.id, workspace.slug, asset.id, 0, 61), WorkspaceAccessError);
+    const clip = await queueClip(owner.id, workspace.slug, asset.id, 1, 2);
+    const outOfRange = await queueClip(owner.id, workspace.slug, asset.id, 4, 2);
+    const transcription = await queueTranscription(owner.id, workspace.slug, asset.id, 4);
+    await assert.rejects(queueTranscription(owner.id, workspace.slug, asset.id, 4), CreditBalanceError);
+
+    env = await TestWorkflowEnvironment.createLocal();
+    mediaWorker = await Worker.create({
+      connection: env.nativeConnection, taskQueue: 'cadencedesk-media', activities: { processMediaClip },
+      maxConcurrentActivityTaskExecutions: 1,
+    });
+    mediaRun = mediaWorker.run();
+    const worker = await Worker.create({
+      connection: env.nativeConnection, taskQueue: 'cadencedesk',
+      workflowsPath: fileURLToPath(new URL('../dist/workflows.js', import.meta.url)),
+      activities: { runAiJob },
+    });
+    await worker.runUntil(async () => {
+      await dispatchAiJobs(env.client);
+      await Promise.all([clip, outOfRange, transcription].map(({ id }) => env.client.workflow.getHandle('ai-' + id).result()));
+    });
+
+    const output = await prisma.aiJob.findUniqueOrThrow({ where: { id: clip.id }, include: { asset: true } });
+    assert.equal(output.state, 'SUCCEEDED');
+    assert.equal(output.credits, 0);
+    assert.equal(output.asset.type, 'video/mp4');
+    const clipBytes = await readVideo(output.asset, workspace.id);
+    assert.equal(Buffer.from(clipBytes.subarray(4, 8)).toString(), 'ftyp');
+    const rejected = await prisma.aiJob.findUniqueOrThrow({ where: { id: outOfRange.id } });
+    assert.equal(rejected.state, 'FAILED');
+    assert.match(rejected.error, /exceeds the duration/);
+    const transcript = await prisma.aiJob.findUniqueOrThrow({ where: { id: transcription.id } });
+    assert.equal(transcript.state, 'SUCCEEDED');
+    assert.equal(transcript.outputText, 'The studio opens on Tuesday.');
+    assert.equal(transcript.providerRef, 'transcript-fixture');
+    assert.equal(await prisma.creditEntry.count({ where: { workspaceId: workspace.id } }), 3);
+    const studio = await studioHistory(owner.id, workspace.slug);
+    assert.equal(studio.available, 0);
+    assert.equal(studio.videos.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    try {
+      if (mediaWorker?.getState() === 'RUNNING') mediaWorker.shutdown();
+      await mediaRun;
+      await env?.teardown();
+    } finally {
+      await new Promise((resolve) => storage.close(resolve));
+      await prisma.workspace.deleteMany({ where: { id: { in: [workspace.id, other.id] } } });
+      await prisma.user.delete({ where: { id: owner.id } });
+      await prisma.$disconnect();
+      await rm(sample, { force: true });
+      await rmdir(directory);
+    }
+  }
+});

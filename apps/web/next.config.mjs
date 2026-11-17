@@ -1,5 +1,5 @@
 const config = {
-  experimental: { serverActions: { bodySizeLimit: '3mb' } },
+  experimental: { serverActions: { bodySizeLimit: '22mb' } },
   async headers() {
     return [{
       source: '/review/:path*',

@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim AS application
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global pnpm@10.10.0
@@ -7,3 +7,9 @@ WORKDIR /app
 COPY --chown=node:node . .
 USER node
 RUN pnpm install --frozen-lockfile && pnpm db:generate && pnpm build
+
+FROM application AS media
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+USER node

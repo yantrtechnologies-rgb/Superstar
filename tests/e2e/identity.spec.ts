@@ -332,3 +332,36 @@ test('workspace admins can create, rotate, and pause outbound webhooks', async (
     await prisma.$disconnect();
   }
 });
+
+test('Studio uploads an MP4 and queues clipping and transcription', async ({ page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  const email = `video-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Video Studio Fixture');
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
+  try {
+    await page.getByRole('link', { name: 'AI Studio', exact: true }).click();
+    await page.getByLabel('MP4 video up to 20 MiB').setInputFiles({
+      name: 'Studio source.mp4', mimeType: 'video/mp4',
+      buffer: Buffer.from('000000186674797069736f6d0000020069736f6d6d703431', 'hex'),
+    });
+    await page.getByRole('button', { name: 'Upload video' }).click();
+    await expect(page.getByRole('listitem').filter({ hasText: 'Studio source.mp4' })
+      .getByRole('link', { name: 'Download video' })).toBeVisible();
+    const clip = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Clip video' }) });
+    await clip.getByLabel('Source video').selectOption({ label: 'Studio source.mp4' });
+    await clip.getByLabel('Duration in seconds').fill('2');
+    await clip.getByRole('button', { name: 'Create clip' }).click();
+    await expect(page.getByRole('heading', { name: 'Clip · queued' })).toBeVisible();
+    await expect(page.getByText('4 credits available', { exact: true })).toBeVisible();
+    const transcript = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Transcribe audio' }) });
+    await transcript.getByLabel('Source video').selectOption({ label: 'Studio source.mp4' });
+    await transcript.getByRole('button', { name: 'Start transcription · 4 credits' }).click();
+    await expect(page.getByRole('heading', { name: 'Transcript · queued' })).toBeVisible();
+    await expect(page.getByText('0 credits available', { exact: true })).toBeVisible();
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { email } });
+    await prisma.$disconnect();
+  }
+});

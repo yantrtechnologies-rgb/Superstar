@@ -1,17 +1,21 @@
 x-application: &application
   image: cadencedesk-local
-  build: .
+  build:
+    context: .
+    target: application
   environment: &application-env
     DATABASE_URL: postgresql://cadencedesk:cadencedesk@postgres:5432/cadencedesk
     REDIS_URL: redis://redis:6379
     APP_MODE: self-hosted
 
-x-publishing-env: &publishing-env
-  <<: *application-env
+x-object-storage-env: &object-storage-env
   OBJECT_STORAGE_ENDPOINT: http://storage:9000
   OBJECT_STORAGE_BUCKET: cadencedesk
   OBJECT_STORAGE_ACCESS_KEY: cadencedesk
   OBJECT_STORAGE_SECRET_KEY: cadencedesk-local
+
+x-publishing-env: &publishing-env
+  <<: [*application-env, *object-storage-env]
   DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
   DISCORD_WORKSPACE_CHANNELS: ${DISCORD_WORKSPACE_CHANNELS:-}
   TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
@@ -25,6 +29,9 @@ x-publishing-env: &publishing-env
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   OPENAI_TEXT_MODEL: ${OPENAI_TEXT_MODEL:-}
   OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-}
+  OPENAI_TRANSCRIBE_MODEL: ${OPENAI_TRANSCRIBE_MODEL:-}
+  AI_TRANSCRIBE_BASE_CREDITS: ${AI_TRANSCRIBE_BASE_CREDITS:-}
+  MEDIA_CLIPPING_ENABLED: ${MEDIA_CLIPPING_ENABLED:-true}
   AI_TEXT_BASE_CREDITS: ${AI_TEXT_BASE_CREDITS:-}
   AI_IMAGE_BASE_CREDITS: ${AI_IMAGE_BASE_CREDITS:-}
   AI_CREDIT_MARKUP: ${AI_CREDIT_MARKUP:-2.0}
@@ -34,6 +41,7 @@ x-publishing-env: &publishing-env
 
 services:
   postgres:
+    networks: [default, media]
     image: postgres:16
     environment:
       POSTGRES_USER: cadencedesk
@@ -53,6 +61,7 @@ services:
     ports:
       - "127.0.0.1:6379:6379"
   temporal:
+    networks: [default, media]
     image: temporalio/auto-setup:1.27.2
     environment:
       DB: postgres12
@@ -72,6 +81,7 @@ services:
       retries: 30
       start_period: 15s
   storage:
+    networks: [default, media]
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data
     environment:
@@ -123,6 +133,41 @@ services:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:3002:3002"
+
+  media-worker:
+    image: cadencedesk-media-local
+    build:
+      context: .
+      target: media
+    command: ["pnpm", "--filter", "@cadencedesk/worker", "start:media"]
+    environment:
+      <<: *object-storage-env
+      DATABASE_URL: postgresql://cadencedesk:cadencedesk@postgres:5432/cadencedesk
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+    depends_on:
+      temporal:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [media]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    pids_limit: 96
+    mem_limit: 768m
+    cpus: 1.5
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3003').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 16
+      start_period: 10s
+
+networks:
+  media:
+    internal: true
 
 volumes:
   database:

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { type AiKind, type Prisma } from '@prisma/client';
+import { AssetStorageError, assetStorageConfigured, readVideo, uploadVideo } from './assets';
 import { prisma } from './client';
 import { canWritePosts } from './publishing';
 import { WorkspaceAccessError } from './workspaces';
@@ -14,19 +15,24 @@ function starterCredits() {
   return Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000 ? value : 0;
 }
 
+export function clippingConfigured() {
+  return process.env.MEDIA_CLIPPING_ENABLED === 'true' && assetStorageConfigured();
+}
+
 export function aiQuote(kind: AiKind) {
-  const model = kind === 'TEXT' ? process.env.OPENAI_TEXT_MODEL : process.env.OPENAI_IMAGE_MODEL;
-  const base = Number(kind === 'TEXT' ? process.env.AI_TEXT_BASE_CREDITS : process.env.AI_IMAGE_BASE_CREDITS);
+  if (kind === 'CLIP') return clippingConfigured() ? { credits: 0, model: 'ffmpeg' } : null;
+  const values = {
+    TEXT: [process.env.OPENAI_TEXT_MODEL, process.env.AI_TEXT_BASE_CREDITS],
+    IMAGE: [process.env.OPENAI_IMAGE_MODEL, process.env.AI_IMAGE_BASE_CREDITS],
+    TRANSCRIBE: [process.env.OPENAI_TRANSCRIBE_MODEL, process.env.AI_TRANSCRIBE_BASE_CREDITS],
+  };
+  const [model, amount] = values[kind];
+  const base = Number(amount);
   const markup = Number(process.env.AI_CREDIT_MARKUP ?? 2);
   const credits = Math.ceil(base * markup);
   if (!process.env.OPENAI_API_KEY || !model || !Number.isFinite(base) || base <= 0
     || !Number.isFinite(markup) || markup <= 0 || credits > 1_000_000) return null;
-  if (kind === 'IMAGE' && ![
-    process.env.OBJECT_STORAGE_ENDPOINT,
-    process.env.OBJECT_STORAGE_BUCKET,
-    process.env.OBJECT_STORAGE_ACCESS_KEY,
-    process.env.OBJECT_STORAGE_SECRET_KEY,
-  ].every(Boolean)) return null;
+  if (kind !== 'TEXT' && !assetStorageConfigured()) return null;
   return { credits, model };
 }
 
@@ -40,27 +46,42 @@ async function initializeAccount(tx: Prisma.TransactionClient, workspaceId: stri
   }
 }
 
-export async function queueAiJob(userId: string, slug: string, kind: AiKind, prompt: string, confirmedCredits: number, requestId: string = randomUUID()) {
-  const text = prompt.trim();
-  if (!text || text.length > 4000) throw new WorkspaceAccessError('Use a prompt of up to 4,000 characters.');
-  const quote = aiQuote(kind);
-  if (!quote) throw new AiUnavailableError('Configure the AI provider and credit quote.');
+type StudioJobInput = {
+  kind: AiKind;
+  prompt: string;
+  requestId: string;
+  sourceAssetId?: string;
+  startSecond?: number;
+  durationSeconds?: number;
+};
+
+async function queueStudioJob(userId: string, slug: string, input: StudioJobInput, confirmedCredits: number) {
+  const quote = aiQuote(input.kind);
+  if (!quote) throw new AiUnavailableError('Configure the studio job and credit quote.');
   if (confirmedCredits !== quote.credits) throw new QuoteChangedError('The credit quote changed. Review the new price.');
   return prisma.$transaction(async (tx) => {
     const membership = await tx.membership.findFirst({ where: { userId, workspace: { slug } } });
-    if (!membership || !canWritePosts(membership.role)) throw new WorkspaceAccessError('You cannot create an AI job.');
+    if (!membership || !canWritePosts(membership.role)) throw new WorkspaceAccessError('You cannot create a studio job.');
     const { workspaceId } = membership;
-    await initializeAccount(tx, workspaceId);
+    if (input.sourceAssetId && !await tx.asset.findFirst({
+      where: { id: input.sourceAssetId, workspaceId, type: 'video/mp4' }, select: { id: true },
+    })) throw new WorkspaceAccessError('The source video is unavailable.');
+    if (quote.credits) await initializeAccount(tx, workspaceId);
     const created = await tx.aiJob.createMany({
-      data: { workspaceId, requestId, kind, prompt: text, ...quote }, skipDuplicates: true,
+      data: { workspaceId, ...input, ...quote }, skipDuplicates: true,
     });
-    const job = await tx.aiJob.findUniqueOrThrow({ where: { workspaceId_requestId: { workspaceId, requestId } } });
+    const job = await tx.aiJob.findUniqueOrThrow({
+      where: { workspaceId_requestId: { workspaceId, requestId: input.requestId } },
+    });
     if (!created.count) {
-      if (job.kind !== kind || job.prompt !== text || job.credits !== quote.credits || job.model !== quote.model) {
-        throw new QuoteChangedError('Refresh before submitting another generation.');
+      if (job.kind !== input.kind || job.prompt !== input.prompt || job.credits !== quote.credits || job.model !== quote.model
+        || job.sourceAssetId !== (input.sourceAssetId ?? null) || job.startSecond !== (input.startSecond ?? null)
+        || job.durationSeconds !== (input.durationSeconds ?? null)) {
+        throw new QuoteChangedError('Refresh before submitting another studio job.');
       }
       return job;
     }
+    if (!quote.credits) return job;
     const reserved = await tx.creditAccount.updateMany({
       where: { workspaceId, available: { gte: quote.credits } },
       data: { available: { decrement: quote.credits } },
@@ -73,7 +94,47 @@ export async function queueAiJob(userId: string, slug: string, kind: AiKind, pro
   });
 }
 
+export async function queueAiJob(
+  userId: string, slug: string, kind: (typeof aiKinds)[number], prompt: string,
+  confirmedCredits: number, requestId: string = randomUUID(),
+) {
+  const text = prompt.trim();
+  if (!text || text.length > 4000) throw new WorkspaceAccessError('Use a prompt of up to 4,000 characters.');
+  return queueStudioJob(userId, slug, { kind, prompt: text, requestId }, confirmedCredits);
+}
+
+export function validClipRange(startSecond: number, durationSeconds: number) {
+  return Number.isInteger(startSecond) && startSecond >= 0 && startSecond <= 3600
+    && Number.isInteger(durationSeconds) && durationSeconds >= 1 && durationSeconds <= 60;
+}
+
+export async function queueClip(
+  userId: string, slug: string, sourceAssetId: string, startSecond: number, durationSeconds: number,
+  requestId: string = randomUUID(),
+) {
+  if (!validClipRange(startSecond, durationSeconds)) throw new WorkspaceAccessError('Choose a clip of 1 to 60 seconds.');
+  return queueStudioJob(userId, slug, {
+    kind: 'CLIP', prompt: 'MP4 clip', requestId, sourceAssetId, startSecond, durationSeconds,
+  }, 0);
+}
+
+export function queueTranscription(
+  userId: string, slug: string, sourceAssetId: string, confirmedCredits: number, requestId: string = randomUUID(),
+) {
+  return queueStudioJob(userId, slug, { kind: 'TRANSCRIBE', prompt: 'Video audio transcription', requestId, sourceAssetId }, confirmedCredits);
+}
+
+export async function saveStudioVideo(userId: string, slug: string, rawLabel: string, bytes: Uint8Array<ArrayBuffer>) {
+  const membership = await prisma.membership.findFirst({ where: { userId, workspace: { slug } } });
+  if (!membership || !canWritePosts(membership.role)) throw new WorkspaceAccessError('You cannot upload workspace video.');
+  const { workspaceId } = membership;
+  const uploaded = await uploadVideo(workspaceId, bytes);
+  const label = rawLabel.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120) || 'Uploaded video';
+  return prisma.asset.create({ data: { workspaceId, ...uploaded, label } });
+}
+
 async function refund(tx: Prisma.TransactionClient, job: { id: string; workspaceId: string; credits: number }) {
+  if (!job.credits) return;
   await tx.creditEntry.create({
     data: { workspaceId: job.workspaceId, kind: 'REFUND', delta: job.credits, reference: 'refund:' + job.id },
   });
@@ -94,7 +155,7 @@ export async function cancelAiJob(userId: string, slug: string, id: string) {
 }
 
 type AiOutcome =
-  | { type: 'success'; providerRef: string | null; text?: string; image?: { key: string; type: string; size: number; checksum: string } }
+  | { type: 'success'; providerRef: string | null; text?: string; asset?: { key: string; type: string; size: number; checksum: string; label?: string } }
   | { type: 'failed'; error: string; providerRef?: string | null };
 
 export async function finalizeAiJob(id: string, outcome: AiOutcome) {
@@ -113,11 +174,11 @@ export async function finalizeAiJob(id: string, outcome: AiOutcome) {
       await refund(tx, job);
       return;
     }
-    const asset = outcome.image ? await tx.asset.create({ data: { workspaceId: job.workspaceId, ...outcome.image } }) : null;
+    const asset = outcome.asset ? await tx.asset.create({ data: { workspaceId: job.workspaceId, ...outcome.asset } }) : null;
     await tx.aiJob.update({
       where: { id }, data: { outputText: outcome.text ?? null, assetId: asset?.id ?? null },
     });
-    await tx.creditEntry.create({
+    if (job.credits) await tx.creditEntry.create({
       data: { workspaceId: job.workspaceId, kind: 'CAPTURE', delta: 0, reference: 'capture:' + id },
     });
   });
@@ -130,9 +191,13 @@ export async function studioHistory(userId: string, slug: string) {
       creditAccount: { select: { available: true, entries: {
         orderBy: { createdAt: 'desc' }, take: 20, select: { id: true, delta: true, kind: true },
       } } },
+      assets: {
+        where: { type: 'video/mp4' }, orderBy: { createdAt: 'desc' }, take: 30,
+        select: { id: true, label: true },
+      },
       aiJobs: {
         orderBy: { createdAt: 'desc' }, take: 30,
-        select: { id: true, kind: true, state: true, prompt: true, credits: true, outputText: true, assetId: true, error: true },
+        select: { id: true, kind: true, state: true, prompt: true, credits: true, outputText: true, assetId: true, error: true, startSecond: true, durationSeconds: true },
       },
     },
   });
@@ -140,11 +205,23 @@ export async function studioHistory(userId: string, slug: string) {
     available: workspace.creditAccount?.available ?? starterCredits(),
     entries: workspace.creditAccount?.entries ?? [],
     jobs: workspace.aiJobs,
+    videos: workspace.assets,
   };
 }
 
 export function studioAsset(userId: string, slug: string, id: string) {
   return prisma.asset.findFirst({
-    where: { id, workspace: { slug, memberships: { some: { userId } } }, aiJobs: { some: { state: 'SUCCEEDED' } } },
+    where: {
+      id, workspace: { slug, memberships: { some: { userId } } },
+      OR: [{ type: 'video/mp4' }, { aiJobs: { some: { state: 'SUCCEEDED' } } }],
+    },
   });
+}
+
+export async function readStudioJobVideo(workspaceId: string, sourceAssetId: string | null) {
+  const source = sourceAssetId && await prisma.asset.findFirst({
+    where: { id: sourceAssetId, workspaceId, type: 'video/mp4' },
+  });
+  if (!source) throw new AssetStorageError('The workspace source video is unavailable.');
+  return readVideo(source, workspaceId);
 }

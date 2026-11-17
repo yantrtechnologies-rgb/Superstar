@@ -1,5 +1,3 @@
-import type { AiKind } from '@cadencedesk/data';
-
 export class AiProviderError extends Error {
   constructor(message: string, readonly providerRef: string | null = null) {
     super(message);
@@ -8,7 +6,7 @@ export class AiProviderError extends Error {
 
 type Generation = { text: string; providerRef: string | null } | { image: Uint8Array<ArrayBuffer>; providerRef: string | null };
 
-export async function generateContent(job: { kind: AiKind; model: string; prompt: string }): Promise<Generation> {
+export async function generateContent(job: { kind: 'TEXT' | 'IMAGE'; model: string; prompt: string }): Promise<Generation> {
   const token = process.env.OPENAI_API_KEY;
   if (!token) throw new AiProviderError('The AI provider requires configuration.');
   const text = job.kind === 'TEXT';
@@ -53,5 +51,30 @@ export async function generateContent(job: { kind: AiKind; model: string; prompt
   } catch (error) {
     if (error instanceof AiProviderError) throw error;
     throw new AiProviderError('The AI provider result could not be confirmed.', providerRef);
+  }
+}
+
+export async function transcribeVideo(model: string, bytes: Uint8Array<ArrayBuffer>) {
+  const token = process.env.OPENAI_API_KEY;
+  if (!token) throw new AiProviderError('The AI provider requires configuration.');
+  const body = new FormData();
+  body.set('file', new Blob([bytes], { type: 'video/mp4' }), 'workspace-video.mp4');
+  body.set('model', model);
+  body.set('response_format', 'json');
+  let providerRef: string | null = null;
+  try {
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST', body, redirect: 'error', signal: AbortSignal.timeout(90_000),
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    providerRef = response.headers.get('x-request-id')?.slice(0, 255) ?? null;
+    if (!response.ok) throw new AiProviderError(`Transcription was rejected (HTTP ${response.status}).`, providerRef);
+    const data = await response.json() as { text?: string };
+    const text = typeof data.text === 'string' ? data.text.trim() : '';
+    if (!text || text.length > 100_000) throw new AiProviderError('The provider returned no usable transcript.', providerRef);
+    return { text, providerRef };
+  } catch (error) {
+    if (error instanceof AiProviderError) throw error;
+    throw new AiProviderError('The transcription result could not be confirmed.', providerRef);
   }
 }

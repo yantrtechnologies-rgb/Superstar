@@ -4,14 +4,18 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireUser } from '../../../../lib/require-user';
 import { cancelGenerationAction, generateAction } from './actions';
+import { VideoStudio } from './video-studio';
 
 const messages: Record<string, string> = {
   saved: 'Studio updated.',
+  asset: 'Choose a valid MP4 no larger than 20 MiB, or ask your operator to check object storage.',
   balance: 'This workspace has insufficient credits for that generation.',
   quote: 'The credit quote changed. Review the displayed price before submitting again.',
   config: 'Ask your operator to configure the AI provider and credit quote.',
   invalid: 'Check the prompt, job status and your workspace access.',
 };
+
+const jobLabels = { TEXT: 'Social copy', IMAGE: 'Image', CLIP: 'Clip', TRANSCRIBE: 'Transcript' };
 
 export default async function Studio({ params, searchParams }: {
   params: Promise<{ workspace: string }>; searchParams: Promise<{ status?: string }>;
@@ -46,25 +50,27 @@ export default async function Studio({ params, searchParams }: {
           </article>
         </li>;
       })}</ul>}
-      <h2>Generation history</h2>
+      <VideoStudio workspace={workspace} videos={history.videos} canWrite={canWrite} />
+      <h2>Job history</h2>
       {history.jobs.some(({ state }) => state === 'QUEUED' || state === 'RUNNING') &&
         <Link href={`/app/${workspace}/studio?status=refresh`}>Check job status</Link>}
       {history.jobs.length ? <ul className="post-list">{history.jobs.map((job) => (
         <li key={job.id}>
           <article>
-            <h2>{job.kind === 'TEXT' ? 'Social copy' : 'Image'} · {job.state.toLowerCase()}</h2>
+            <h2>{jobLabels[job.kind]} · {job.state.toLowerCase()}</h2>
             <p className="post-content">{job.prompt}</p>
-            <p>{job.credits} credits</p>
+            {job.kind === 'CLIP' && <p>{job.startSecond}s start · {job.durationSeconds}s duration</p>}
+            {job.credits > 0 && <p>{job.credits} credits</p>}
             {job.outputText && <div className="identity-form">
-              <label htmlFor={'output-' + job.id}>Generated copy</label>
+              <label htmlFor={'output-' + job.id}>{job.kind === 'TRANSCRIBE' ? 'Transcript' : 'Generated copy'}</label>
               <textarea id={'output-' + job.id} rows={5} readOnly value={job.outputText} />
             </div>}
-            {job.assetId && <a href={`/app/${workspace}/studio/assets/${job.assetId}`}>Download generated image</a>}
+            {job.assetId && <a href={`/app/${workspace}/studio/assets/${job.assetId}`}>{job.kind === 'CLIP' ? 'Download clip' : 'Download generated image'}</a>}
             {job.error && <p>{job.error}</p>}
             {job.state === 'QUEUED' && canWrite && <form action={cancelGenerationAction}>
               <input type="hidden" name="workspace" value={workspace} />
               <input type="hidden" name="id" value={job.id} />
-              <button type="submit">Cancel queued generation</button>
+              <button type="submit">{job.kind === 'CLIP' || job.kind === 'TRANSCRIBE' ? 'Cancel queued job' : 'Cancel queued generation'}</button>
             </form>}
           </article>
         </li>
