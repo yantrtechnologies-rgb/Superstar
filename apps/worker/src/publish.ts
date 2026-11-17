@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { getProvider, prisma, readImage, validateProviderPost, AssetStorageError, ProviderConfigurationError, type PublishResult } from '@cadencedesk/data';
+import { enqueuePublishedWebhooks, getProvider, prisma, readImage, validateProviderPost, AssetStorageError, ProviderConfigurationError, type PublishResult } from '@cadencedesk/data';
 import { Client, WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
 
 export async function publishDestination(id: string): Promise<number | null> {
@@ -67,6 +67,13 @@ export async function publishDestination(id: string): Promise<number | null> {
       data: outcome,
     });
     if (!saved.count) return;
+    if (outcome.state === 'PUBLISHED') {
+      await enqueuePublishedWebhooks(tx, {
+        workspaceId: destination.post.workspaceId, postId: destination.postId, destinationId: id,
+        channelId: destination.channelId, provider: destination.channel.provider,
+        externalId: outcome.externalId, permalink: outcome.permalink,
+      });
+    }
     await tx.publishAttempt.update({
       where: { id: attempt.id },
       data: { state: retryDelay !== null ? 'FAILED' : outcome.state, error: retryDelay !== null ? 'Provider rate limit.' : outcome.error, finishedAt: new Date() },

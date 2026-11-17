@@ -301,3 +301,34 @@ test('the Studio reserves and returns credits and Automations queues an approved
     await prisma.$disconnect();
   }
 });
+
+test('workspace admins can create, rotate, and pause outbound webhooks', async ({ page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  const email = `webhooks-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Webhook Studio');
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
+  try {
+    await page.getByRole('link', { name: 'Automations', exact: true }).click();
+    await page.getByRole('link', { name: 'Manage outbound webhooks' }).click();
+    await page.getByLabel('Subscription name').fill('Editorial tracker');
+    await page.getByLabel('Approved HTTPS endpoint').fill('https://hooks.example.invalid/published');
+    await page.getByRole('button', { name: 'Create webhook' }).click();
+    const initialSecret = page.getByLabel('Signing secret', { exact: true });
+    await expect(initialSecret).toBeVisible();
+    const original = await initialSecret.inputValue();
+    expect(original).toMatch(/^whsec_/);
+    const subscription = page.getByRole('article').filter({ hasText: 'Editorial tracker' });
+    await subscription.getByRole('button', { name: 'Rotate signing secret' }).click();
+    const rotatedSecret = subscription.getByLabel('Signing secret', { exact: true });
+    await expect(rotatedSecret).toBeVisible();
+    expect(await rotatedSecret.inputValue()).not.toBe(original);
+    await subscription.getByRole('button', { name: 'Pause webhook' }).click();
+    await expect(page.getByText('Webhook paused. Queued deliveries were skipped.')).toBeVisible();
+    await expect(subscription.getByRole('button', { name: 'Enable webhook' })).toBeVisible();
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { email } });
+    await prisma.$disconnect();
+  }
+});

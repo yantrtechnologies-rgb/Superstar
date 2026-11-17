@@ -24,6 +24,7 @@ export default async function Automations({ params, searchParams }: {
   return (
     <>
       <h1>Automations</h1>
+      {canManage && <Link href={`/app/${workspace}/automations/webhooks`}>Manage outbound webhooks</Link>}
       <h2>RSS-to-draft rules</h2>
       {status && Object.hasOwn(messages, status) && <p role="status">{messages[status]}</p>}
       {canManage && (rssConfigured() ? (

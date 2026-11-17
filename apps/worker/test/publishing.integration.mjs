@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
 import {
-  cancelPost, connectChannel, createWorkspace, CreditBalanceError, finalizeAiJob, listChannels, queueAiJob, nextAvailableSlot, prisma, queueChannelMetric, savePost, schedulePost, transitionPost, workspaceMetrics,
+  addWebhook, cancelPost, connectChannel, createWorkspace, CreditBalanceError, finalizeAiJob, listChannels, queueAiJob, nextAvailableSlot, prisma, queueChannelMetric, savePost, schedulePost, transitionPost, workspaceMetrics,
 } from '@cadencedesk/data';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
@@ -12,6 +13,7 @@ import { dispatchOutbox, publishDestination, reconcileInterrupted } from '../dis
 import { collectChannelMetric, dispatchAnalytics } from '../dist/analytics.js';
 import { dispatchAiJobs, reconcileAiJobs, runAiJob } from '../dist/ai.js';
 import { importRssRun, recordFeedItems, queueDueRssRules } from '../dist/rss.js';
+import { deliverWebhook, dispatchWebhooks } from '../dist/webhooks.js';
 
 const ids = { guild: '123456789012345670', good: '123456789012345671', bad: '123456789012345672', chat: '-1001723456789', post: '123456789012345673' };
 
@@ -67,6 +69,10 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
   const providerCalls = new Map();
   let telegramMetricAvailable = true;
   let aiRequests = 0;
+  const httpAttempts = new Map();
+  const webhookBodies = new Map();
+  process.env.WEBHOOK_ALLOWED_ENDPOINTS = 'https://hooks.example.invalid/published';
+  process.env.TOKEN_ENCRYPTION_KEY = Buffer.alloc(32, 0x38).toString('base64');
   Object.assign(process.env, {
     OPENAI_API_KEY: 'fixture-key', OPENAI_TEXT_MODEL: 'fixture-text', OPENAI_IMAGE_MODEL: 'fixture-image',
     AI_STARTER_CREDITS: '4', AI_TEXT_BASE_CREDITS: '2', AI_IMAGE_BASE_CREDITS: '2', AI_CREDIT_MARKUP: '2',
@@ -141,11 +147,28 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
     await transitionPost(owner.id, workspace.slug, edited.id, 2, 'APPROVED');
     await assert.rejects(schedulePost(owner.id, workspace.slug, edited.id, 2, channelIds.slice(0, 1), new Date()));
 
+    const webhook = await addWebhook(owner.id, workspace.slug, 'Publication webhook', process.env.WEBHOOK_ALLOWED_ENDPOINTS);
     env = await TestWorkflowEnvironment.createLocal();
     const worker = await Worker.create({
       connection: env.nativeConnection, taskQueue: 'cadencedesk',
       workflowsPath: fileURLToPath(new URL('../dist/workflows.js', import.meta.url)),
-      activities: { publishDestination, collectChannelMetric, runAiJob, importRssRun },
+      activities: {
+        publishDestination, collectChannelMetric, runAiJob, importRssRun,
+        deliverWebhook: (id) => deliverWebhook(id, async (endpoint, headers, body) => {
+          assert.equal(endpoint.href, process.env.WEBHOOK_ALLOWED_ENDPOINTS);
+          assert.equal(headers['X-CadenceDesk-Event'], 'post.published');
+          assert.equal(headers['X-CadenceDesk-Delivery'], id);
+          const signature = createHmac('sha256', webhook.secret)
+            .update(headers['X-CadenceDesk-Timestamp'] + '.' + id + '.' + body).digest('hex');
+          assert.equal(headers['X-CadenceDesk-Signature'], 'v1=' + signature);
+          if (webhookBodies.has(id)) assert.equal(webhookBodies.get(id), body);
+          webhookBodies.set(id, body);
+          const count = (httpAttempts.get(id) ?? 0) + 1;
+          httpAttempts.set(id, count);
+          if (JSON.parse(body).data.provider === 'telegram') return { statusCode: 400 };
+          return count === 1 ? { statusCode: 429, retryAfter: '1' } : { statusCode: 204 };
+        }),
+      },
     });
     await worker.runUntil(async () => {
       const due = new Date(Date.now() + 1200);
@@ -160,6 +183,21 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
       assert.equal(published?.attempts.length, 2);
       assert.equal(rows.find(({ externalId }) => externalId === '85')?.permalink, 'https://t.me/c/1723456789/85');
       assert.equal(rows.find(({ state }) => state === 'FAILED')?.attempts.length, 1);
+
+      const webhookRows = await prisma.webhookDelivery.findMany({ where: { subscriptionId: webhook.id } });
+      assert.equal(webhookRows.length, 2);
+      const publishedIds = rows.filter(({ state }) => state === 'PUBLISHED').map(({ id }) => id).sort();
+      assert.deepEqual(webhookRows.map(({ eventId }) => eventId).sort(), publishedIds);
+      await Promise.all([dispatchWebhooks(env.client), dispatchWebhooks(env.client)]);
+      await Promise.all(webhookRows.map(({ id }) => env.client.workflow.getHandle('webhook-' + id).result()));
+      const finished = await prisma.webhookDelivery.findMany({ where: { subscriptionId: webhook.id }, include: { attempts: true } });
+      const succeeded = finished.find(({ state }) => state === 'DELIVERED');
+      assert.equal(succeeded.attemptsCount, 2);
+      assert.equal(succeeded.statusCode, 204);
+      assert.equal(succeeded.attempts.find(({ number }) => number === 1).statusCode, 429);
+      const failure = finished.find(({ state }) => state === 'FAILED');
+      assert.equal(failure.attemptsCount, 1);
+      assert.equal(failure.statusCode, 400);
       await Promise.all(rows.map(({ id }) => publishDestination(id)));
       assert.deepEqual([providerCalls.get(ids.good), providerCalls.get(ids.bad), providerCalls.get(ids.chat)], [2, 1, 1]);
 
@@ -495,6 +533,79 @@ test('RSS rules queue durably, deduplicate feed items, and reject unsupported ne
     assert.equal((await prisma.rssRun.findUniqueOrThrow({ where: { id: pending.id } })).state, 'SKIPPED');
   } finally {
     await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { id: owner.id } });
+    await prisma.$disconnect();
+  }
+});
+
+test('webhook pause and secret rotation protect queued deliveries and preserve history', async () => {
+  const {
+    addWebhook, enqueuePublishedWebhooks, listWebhooks, rotateWebhookSecret, setWebhookEnabled,
+    WebhookConfigurationError, webhookEndpoint, webhookSignature, WorkspaceAccessError,
+  } = await import('@cadencedesk/data');
+  const owner = await prisma.user.create({ data: { email: 'webhook-' + crypto.randomUUID() + '@example.invalid' } });
+  const workspace = await createWorkspace(owner.id, 'Webhook Gates', 'UTC');
+  const other = await createWorkspace(owner.id, 'Other Webhooks', 'UTC');
+  process.env.WEBHOOK_ALLOWED_ENDPOINTS = 'https://capture.example.invalid/receiver';
+  process.env.TOKEN_ENCRYPTION_KEY = Buffer.alloc(32, 0x48).toString('base64');
+  try {
+    assert.throws(() => webhookEndpoint('https://capture.example.invalid/other'), WebhookConfigurationError);
+    const { id, secret } = await addWebhook(owner.id, workspace.slug, 'Capture fixture', process.env.WEBHOOK_ALLOWED_ENDPOINTS);
+    const rotated = await rotateWebhookSecret(owner.id, workspace.slug, id);
+    assert.notEqual(rotated, secret);
+    const saved = await prisma.webhookSubscription.findUniqueOrThrow({ where: { id } });
+    assert.ok(!saved.signingSecret.includes(rotated));
+    const event = {
+      workspaceId: workspace.id, postId: crypto.randomUUID(), destinationId: crypto.randomUUID(),
+      channelId: crypto.randomUUID(), provider: 'telegram', externalId: '75', permalink: null,
+    };
+    await Promise.all([
+      prisma.$transaction((tx) => enqueuePublishedWebhooks(tx, event)),
+      prisma.$transaction((tx) => enqueuePublishedWebhooks(tx, event)),
+    ]);
+    assert.equal(await prisma.webhookDelivery.count({ where: { subscriptionId: id } }), 1);
+
+    const delivery = await prisma.webhookDelivery.findFirstOrThrow({ where: { subscriptionId: id } });
+    const timestamp = '1000';
+    const expected = createHmac('sha256', rotated).update(timestamp + '.' + delivery.id + '.' + delivery.body).digest('hex');
+    const input = { workspaceId: workspace.id, subscriptionId: id, signingSecret: saved.signingSecret,
+      deliveryId: delivery.id, timestamp, body: delivery.body };
+    assert.equal(webhookSignature(input), expected);
+    assert.throws(() => webhookSignature({ ...input, workspaceId: other.id }), WebhookConfigurationError);
+    await assert.rejects(setWebhookEnabled(owner.id, other.slug, id, false), WorkspaceAccessError);
+    await setWebhookEnabled(owner.id, workspace.slug, id, false);
+    const [subscription] = await listWebhooks(owner.id, workspace.slug);
+    assert.equal(subscription.deliveries[0].state, 'SKIPPED');
+    assert.equal(subscription.deliveries[0].attemptsCount, 0);
+    assert.ok(!Object.hasOwn(subscription, 'signingSecret'));
+    const outcome = await deliverWebhook(delivery.id, async () => {
+      throw new Error('Paused delivery must not send');
+    });
+    assert.equal(outcome, null);
+    await setWebhookEnabled(owner.id, workspace.slug, id, true);
+    assert.equal((await prisma.webhookDelivery.findUniqueOrThrow({ where: { id: delivery.id } })).state, 'SKIPPED');
+
+    const interrupted = { ...event, destinationId: crypto.randomUUID() };
+    await prisma.$transaction((tx) => enqueuePublishedWebhooks(tx, interrupted));
+    const running = await prisma.webhookDelivery.findFirstOrThrow({ where: { eventId: interrupted.destinationId } });
+    await prisma.webhookDelivery.update({
+      where: { id: running.id },
+      data: {
+        state: 'SENDING', attemptsCount: 1, leasedUntil: new Date(0),
+        attempts: { create: { number: 1, state: 'SENDING' } },
+      },
+    });
+    await deliverWebhook(running.id, async (_endpoint, headers) => {
+      assert.equal(headers['X-CadenceDesk-Delivery'], running.id);
+      return { statusCode: 204 };
+    });
+    const recovered = await prisma.webhookDelivery.findUniqueOrThrow({
+      where: { id: running.id }, include: { attempts: { orderBy: { number: 'asc' } } },
+    });
+    assert.equal(recovered.state, 'DELIVERED');
+    assert.deepEqual(recovered.attempts.map(({ state }) => state), ['FAILED', 'DELIVERED']);
+  } finally {
+    await prisma.workspace.deleteMany({ where: { id: { in: [workspace.id, other.id] } } });
     await prisma.user.delete({ where: { id: owner.id } });
     await prisma.$disconnect();
   }

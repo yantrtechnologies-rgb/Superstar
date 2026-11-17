@@ -23,6 +23,7 @@ model Workspace {
   creditAccount CreditAccount?
   aiJobs AiJob[]
   rssRules RssRule[]
+  webhooks WebhookSubscription[]
   assets Asset[]
   channels Channel[]
   posts Post[]
@@ -483,4 +484,62 @@ model FeedImport {
 
   @@id([ruleId, sourceKey])
   @@map("feed_items")
+}
+
+enum WebhookDeliveryState {
+  QUEUED
+  SENDING
+  DELIVERED
+  FAILED
+  SKIPPED
+}
+
+model WebhookSubscription {
+  id            String            @id @default(uuid()) @db.Uuid
+  workspaceId   String            @db.Uuid @map("workspace_id")
+  name          String
+  endpoint      String
+  signingSecret String            @map("signing_secret")
+  enabled       Boolean           @default(true)
+  workspace     Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deliveries    WebhookDelivery[]
+
+  @@unique([workspaceId, endpoint])
+  @@map("webhook_subscriptions")
+}
+
+model WebhookDelivery {
+  id             String               @id @default(uuid()) @db.Uuid
+  subscriptionId String               @db.Uuid @map("subscription_id")
+  eventId        String               @db.Uuid @map("event_id")
+  body           String
+  state          WebhookDeliveryState @default(QUEUED)
+  attemptsCount  Int                  @default(0) @map("attempts_count")
+  nextAttemptAt  DateTime             @default(now()) @map("next_attempt_at")
+  leasedUntil    DateTime?            @map("leased_until")
+  dispatchedAt   DateTime?            @map("dispatched_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  statusCode     Int?                 @map("status_code")
+  error          String?
+  subscription   WebhookSubscription  @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  attempts       WebhookAttempt[]
+
+  @@unique([subscriptionId, eventId])
+  @@index([state, dispatchedAt, nextAttemptAt])
+  @@map("webhook_deliveries")
+}
+
+model WebhookAttempt {
+  id          String               @id @default(uuid()) @db.Uuid
+  deliveryId  String               @db.Uuid @map("delivery_id")
+  number      Int
+  state       WebhookDeliveryState
+  statusCode  Int?                 @map("status_code")
+  error       String?
+  startedAt   DateTime             @default(now()) @map("started_at")
+  finishedAt  DateTime?            @map("finished_at")
+  delivery    WebhookDelivery      @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@unique([deliveryId, number])
+  @@map("webhook_attempts")
 }

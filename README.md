@@ -79,3 +79,18 @@ Set `OPENAI_API_KEY` and the supported models for `OPENAI_TEXT_MODEL` and `OPENA
 Set `AI_STARTER_CREDITS` before a workspace first reserves credits to grant it a one-time starter allowance. The default is zero. Each accepted job reserves its quote. A completed generation captures the reservation, and a failed or canceled queued job returns it. The Studio shows job history and credit activity.
 
 Set `RSS_ALLOWED_FEEDS` to a comma-separated list of exact public HTTPS feed URLs. Add a rule in Automations to import a feed into drafts. Enabled rules run every 15 minutes, and owners, admins and editors can request a run manually. Imported drafts use the normal review and publishing flow.
+
+## Outbound webhooks
+
+Set `WEBHOOK_ALLOWED_ENDPOINTS` to a comma-separated list of exact public HTTPS receiver URLs and configure `TOKEN_ENCRYPTION_KEY`. Workspace owners and admins can manage subscriptions under **Automations → Manage outbound webhooks**. Copy the signing secret when creating or rotating it.
+
+CadenceDesk sends a JSON `post.published` event per confirmed destination. Its event ID is the destination UUID. The payload includes the post ID, destination ID, channel ID, provider, external post ID and permalink. Its delivery ID stays the same across retries for that subscription.
+
+| Header | Value |
+| --- | --- |
+| `X-CadenceDesk-Event` | `post.published` |
+| `X-CadenceDesk-Delivery` | Stable delivery UUID |
+| `X-CadenceDesk-Timestamp` | Unix seconds for this attempt |
+| `X-CadenceDesk-Signature` | `v1=` followed by the hexadecimal HMAC-SHA256 digest |
+
+Verify the signature over `timestamp.deliveryId.rawBody` using the subscription secret and a constant-time comparison. Allow a limited timestamp skew and deduplicate deliveries by ID before applying effects. Return a 2xx status on success or if the delivery ID was processed already. CadenceDesk retries network failures and retryable HTTP responses up to five attempts total. Pausing skips queued deliveries. Enabling resumes delivery for new publications.

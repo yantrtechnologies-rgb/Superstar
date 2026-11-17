@@ -1,30 +1,17 @@
 import { createHash } from 'node:crypto';
-import { resolve4 } from 'node:dns/promises';
 import { request } from 'node:https';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
-import ipaddr from 'ipaddr.js';
+import { pinPublicIpv4, publicOutboundIpv4 } from './outbound';
 import { allowedFeedUrl, RssConfigurationError } from './rss';
 
 const feedLimit = 512 * 1024;
 
-export function publicFeedAddress(ip: string) {
-  try {
-    const address = ipaddr.parse(ip);
-    return address.kind() === 'ipv4' && address.range() === 'unicast';
-  } catch {
-    return false;
-  }
-}
+export const publicFeedAddress = publicOutboundIpv4;
 
 export async function fetchFeed(source: string) {
   const url = allowedFeedUrl(source);
   const signal = AbortSignal.timeout(12_000);
-  const addresses = await resolve4(url.hostname);
-  signal.throwIfAborted();
-  const address = addresses[0];
-  if (!address || addresses.some((candidate) => !publicFeedAddress(candidate))) {
-    throw new RssConfigurationError('The feed must resolve to a public IPv4 address.');
-  }
+  const address = await pinPublicIpv4(url.hostname, signal);
   return new Promise<string>((resolve, reject) => {
     const req = request(url, {
       family: 4, signal, agent: false,

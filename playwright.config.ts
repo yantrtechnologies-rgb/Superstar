@@ -30,6 +30,7 @@ export default defineConfig({
       AI_CREDIT_MARKUP: '2',
       AI_STARTER_CREDITS: '4',
       RSS_ALLOWED_FEEDS: 'https://news.example.invalid/feed.xml',
+      WEBHOOK_ALLOWED_ENDPOINTS: 'https://hooks.example.invalid/published',
       LINKEDIN_CLIENT_ID: 'playwright-linkedin-id',
       LINKEDIN_CLIENT_SECRET: 'playwright-linkedin-secret',
       TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 0x23).toString('base64'),

@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { collectChannelMetric, dispatchAnalytics } from './analytics';
 import { dispatchAiJobs, reconcileAiJobs, runAiJob } from './ai';
 import { dispatchRssRuns, importRssRun, queueDueRssRules } from './rss';
+import { deliverWebhook, dispatchWebhooks } from './webhooks';
 import { setTimeout } from 'node:timers/promises';
 import { dispatchOutbox, publishDestination, reconcileInterrupted } from './publish';
 
@@ -18,6 +19,7 @@ async function dispatch(client: Client, stop: AbortSignal) {
       await dispatchAiJobs(client);
       await queueDueRssRules();
       await dispatchRssRuns(client);
+      await dispatchWebhooks(client);
     } catch {
       console.error(JSON.stringify({ event: 'publishing.outbox_poll_failed' }));
     }
@@ -42,7 +44,7 @@ async function main() {
         namespace,
         taskQueue: 'cadencedesk',
         workflowsPath: require.resolve('./workflows'),
-        activities: { publishDestination, collectChannelMetric, runAiJob, importRssRun },
+        activities: { publishDestination, collectChannelMetric, runAiJob, importRssRun, deliverWebhook },
       });
       const server = createServer((_request, response) => {
         const running = worker.getState() === 'RUNNING';

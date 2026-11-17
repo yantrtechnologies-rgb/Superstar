@@ -37,3 +37,16 @@ export async function generateAiContent(jobId: string) {
 export async function importRssFeed(runId: string) {
   await importRssRun(runId);
 }
+
+const { deliverWebhook } = proxyActivities<{ deliverWebhook(id: string): Promise<number | null> }>({
+  startToCloseTimeout: '30 seconds',
+  retry: { maximumInterval: '30 seconds' },
+});
+
+export async function deliverPublishedWebhook(id: string) {
+  let delay = await deliverWebhook(id);
+  while (delay !== null) {
+    await sleep(delay);
+    delay = await deliverWebhook(id);
+  }
+}

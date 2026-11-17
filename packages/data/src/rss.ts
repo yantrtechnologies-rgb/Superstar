@@ -1,29 +1,16 @@
 import { prisma } from './client';
+import { allowedOutboundUrl } from './outbound';
 import { canWritePosts } from './publishing';
 import { canManageTeam, WorkspaceAccessError } from './workspaces';
 
 export class RssConfigurationError extends Error {}
 
-function approvedFeedUrl(value: string) {
-  const url = new URL(value);
-  if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash || url.search
-    || !/^(?:[a-z0-9-]+\.)+[a-z][a-z0-9-]*$/i.test(url.hostname)) {
-    throw new RssConfigurationError('Use an approved HTTPS feed URL.');
-  }
-  return url;
-}
-
 export function allowedFeedUrl(value: string) {
   try {
-    const url = approvedFeedUrl(value);
-    const allowed = (process.env.RSS_ALLOWED_FEEDS ?? '').split(',').some((entry) => {
-      try { return approvedFeedUrl(entry.trim()).href === url.href; } catch { return false; }
-    });
-    if (allowed) return url;
+    return allowedOutboundUrl(value, process.env.RSS_ALLOWED_FEEDS);
   } catch {
-    // Report a generic error for invalid or unapproved URLs.
+    throw new RssConfigurationError('Ask the workspace operator to allow this exact HTTPS feed URL.');
   }
-  throw new RssConfigurationError('Ask the workspace operator to allow this exact HTTPS feed URL.');
 }
 
 export function rssConfigured() {
