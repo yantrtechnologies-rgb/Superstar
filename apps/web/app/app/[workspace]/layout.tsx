@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { requireUser } from '../../../lib/require-user';
 import { logoutAction } from '../actions';
+import { WorkspaceNav } from './workspace-nav';
 
 export default async function WorkspaceLayout({ children, params }: {
   children: ReactNode;
@@ -16,20 +17,10 @@ export default async function WorkspaceLayout({ children, params }: {
   const memberships = await listMemberships(user.id);
   return (
     <div className="workspace-shell">
+      <a href="#workspace-content" className="skip-link">Skip to content</a>
       <aside>
         <Link className="wordmark" href="/app">CadenceDesk AI</Link>
-        <nav aria-label="Workspace navigation">
-          <Link href={`/app/${workspace}`}>Overview</Link>
-          <Link href={`/app/${workspace}/calendar`}>Agenda</Link>
-          <Link href={`/app/${workspace}/posts`}>Posts</Link>
-          <Link href={`/app/${workspace}/channels`}>Channels</Link>
-          <Link href={`/app/${workspace}/analytics`}>Analytics</Link>
-          <Link href={`/app/${workspace}/studio`}>AI Studio</Link>
-          <Link href={`/app/${workspace}/automations`}>Automations</Link>
-          <Link href={`/app/${workspace}/settings`}>Team settings</Link>
-          {(membership.role === 'OWNER' || membership.role === 'ADMIN') &&
-            <Link href={`/app/${workspace}/billing`}>Usage and billing</Link>}
-        </nav>
+        <WorkspaceNav workspace={workspace} canManage={membership.role === 'OWNER' || membership.role === 'ADMIN'} />
         <nav aria-label="Switch workspace">
           <h2>Workspaces</h2>
           {memberships.map(({ workspace: item }) => (
@@ -41,7 +32,7 @@ export default async function WorkspaceLayout({ children, params }: {
         </nav>
         <form action={logoutAction}><button type="submit">Sign out</button></form>
       </aside>
-      <main>{children}</main>
+      <main id="workspace-content"><div className="workspace-content">{children}</div></main>
     </div>
   );
 }

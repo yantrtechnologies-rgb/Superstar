@@ -474,3 +474,21 @@ test('pricing and billing show configured limits only to the appropriate audienc
     await invited.close();
   }
 });
+
+test('the public landing and workspace navigation fit desktop and mobile', async ({ page }) => {
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'A workspace for social campaigns' })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Sample campaign agenda' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  }
+
+  await signIn(page, `navigation-${randomUUID()}@example.invalid`);
+  await createWorkspace(page, 'Fieldwork Studio');
+  const menu = page.getByRole('navigation', { name: 'Workspace navigation' });
+  await expect(menu.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
+  await menu.getByRole('link', { name: 'Agenda' }).click();
+  await expect(menu.getByRole('link', { name: 'Agenda' })).toHaveAttribute('aria-current', 'page');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});

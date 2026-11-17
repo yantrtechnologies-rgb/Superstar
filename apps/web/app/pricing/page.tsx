@@ -6,8 +6,8 @@ export const dynamic = 'force-dynamic';
 export default function PricingPage() {
   const catalog = billingCatalog();
   return (
-    <main className="mx-auto max-w-6xl px-6 py-12 sm:px-12">
-      <nav className="flex items-center justify-between gap-4" aria-label="Main navigation">
+    <main className="public-home pb-12">
+      <nav className="public-nav" aria-label="Main navigation">
         <Link className="wordmark" href="/">CadenceDesk AI</Link>
         <Link href="/login" className="primary">Sign in</Link>
       </nav>
@@ -17,7 +17,7 @@ export default function PricingPage() {
       </header>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {catalog.map((plan) => (
-          <section key={plan.id} className="rounded-xl border border-stone-300 bg-white p-5">
+          <section key={plan.id} className="pricing-card rounded-xl border bg-white p-5">
             <h2 className="text-xl font-semibold">{plan.name}</h2>
             <p className="mt-2 font-semibold text-emerald-900">{plan.id === 'free' ? 'Free' : 'Pricing pending'}</p>
             <p className="my-4 min-h-12">{plan.audience}</p>
