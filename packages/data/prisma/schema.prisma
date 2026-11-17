@@ -21,6 +21,8 @@ model Workspace {
   clientGroups ClientGroup[]
   oauthStates OAuthState[]
   creditAccount CreditAccount?
+  billingAccount BillingAccount?
+  stripeEvents StripeEvent[]
   aiJobs AiJob[]
   rssRules RssRule[]
   webhooks WebhookSubscription[]
@@ -594,4 +596,28 @@ model ApiKey {
 
   @@index([workspaceId, createdAt])
   @@map("api_keys")
+}
+
+model BillingAccount {
+  workspaceId String @id @db.Uuid @map("workspace_id")
+  stripeCustomerId String @unique @map("stripe_customer_id")
+  stripeSubscriptionId String? @unique @map("stripe_subscription_id")
+  priceId String? @map("price_id")
+  status String?
+  periodEnd DateTime? @map("period_end")
+  cancelAtPeriodEnd Boolean @default(false) @map("cancel_at_period_end")
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("billing_accounts")
+}
+
+model StripeEvent {
+  id String @id
+  type String
+  workspaceId String @map("workspace_id") @db.Uuid
+  processedAt DateTime @default(now()) @map("processed_at")
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("stripe_events")
 }

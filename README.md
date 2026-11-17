@@ -158,4 +158,6 @@ Configure your MCP host to launch `node` with the absolute path to `apps/mcp/dis
 
 Open `/pricing` for the plan comparison. To display proposed limits, set `BILLING_PLAN_LIMITS` in the web process environment. Keys are `free`, `creator`, `team` and `agency`. For example, `{"free":{"limits":{"seats":3}}}` displays a proposed three-seat limit on Free. Omitted values show as TBD. These limits are informational.
 
-Workspace owners and admins can open **Usage and billing** for counts and the latest 20 AI credit ledger entries. Stripe Checkout, entitlements and the Customer Portal are pending.
+Workspace owners and admins can open **Usage and billing** for counts and the latest 20 AI credit ledger entries. Entitlement enforcement and Stripe credit-pack purchases are pending.
+
+For hosted billing tests, set `APP_MODE=hosted`, a Stripe test secret key in `STRIPE_SECRET_KEY`, a test endpoint secret in `STRIPE_WEBHOOK_SECRET`, and one or more recurring `STRIPE_PRICE_<PLAN>_<INTERVAL>` IDs from `.env.example`. Configure the Stripe Customer Portal in the same test account. Open **Usage and billing** to start Checkout. Forward Stripe snapshot events to `/api/stripe/webhook`, including `checkout.session.completed` and subscription created, updated and deleted. The webhook verifies the raw body, records event IDs, and retrieves the current subscription from Stripe. [Stripe Checkout](https://docs.stripe.com/api/checkout/sessions/create) · [Stripe webhooks](https://docs.stripe.com/webhooks)

@@ -3,16 +3,28 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { billingCatalog } from '../../../../lib/billing-catalog';
 import { requireUser } from '../../../../lib/require-user';
+import { stripeBilling, stripePrices } from '../../../../lib/stripe-billing';
+import { openBillingAction } from './actions';
 
 const number = new Intl.NumberFormat('en-US');
 
-export default async function BillingPage({ params }: { params: Promise<{ workspace: string }> }) {
+export default async function BillingPage({ params, searchParams }: {
+  params: Promise<{ workspace: string }>;
+  searchParams: Promise<{ status?: string }>;
+}) {
   const user = await requireUser();
   const { workspace } = await params;
   const member = await findMembership(user.id, workspace);
   if (!member || (member.role !== 'OWNER' && member.role !== 'ADMIN')) notFound();
   const workspaceId = member.workspace.id;
-  const limits = billingCatalog().find(({ id }) => id === 'free')?.limits;
+  const { status } = await searchParams;
+  const catalog = billingCatalog();
+  const billingEnabled = stripeBilling() !== null;
+  const prices = billingEnabled ? stripePrices() : [];
+  const account = billingEnabled ? await prisma.billingAccount.findUnique({ where: { workspaceId } }) : null;
+  const activePrice = prices.find(({ price }) => price === account?.priceId);
+  const planId = account?.status === 'active' || account?.status === 'trialing' ? activePrice?.plan : 'free';
+  const limits = catalog.find(({ id }) => id === planId)?.limits;
   const [seats, channels, scheduled, feeds, webhooks, credits] = await Promise.all([
     prisma.membership.count({ where: { workspaceId } }),
     prisma.channel.count({ where: { workspaceId } }),
@@ -63,7 +75,25 @@ export default async function BillingPage({ params }: { params: Promise<{ worksp
       </section>
       <section className="my-6 rounded-xl border border-stone-300 bg-white p-5">
         <h2>Subscriptions</h2>
-        <p className="mb-3">Paid subscriptions are pending billing configuration.</p>
+                {status === 'checkout' && <p role="status">Checkout returned. Subscription status updates after Stripe confirmation.</p>}
+        {status === 'unavailable' && <p role="status">Billing is unavailable for this request. Check your subscription or try again.</p>}
+        {account?.status && <p className="mb-2">{activePrice?.plan ?? 'Subscription'} · {account.status.replaceAll('_', ' ')}</p>}
+        {account?.periodEnd && <p className="mb-2">{account.cancelAtPeriodEnd ? 'Ends' : 'Current period ends'} on {account.periodEnd.toISOString().slice(0, 10)}</p>}
+        {account && (
+          <form action={openBillingAction} className="my-3">
+            <input type="hidden" name="workspace" value={workspace} />
+            <button name="intent" value="portal">Manage subscription and invoices</button>
+          </form>
+        )}
+        {!account?.stripeSubscriptionId && prices.map(({ plan, period }) => (
+          <form key={plan + period} action={openBillingAction} className="my-3">
+            <input type="hidden" name="workspace" value={workspace} />
+            <input type="hidden" name="plan" value={plan} />
+            <input type="hidden" name="period" value={period} />
+            <button type="submit">Open Stripe test Checkout for {catalog.find(({ id }) => id === plan)?.name} ({period})</button>
+          </form>
+        ))}
+        {!prices.length && !account && <p className="mb-3">Paid subscriptions are pending billing configuration.</p>}
         <Link href="/pricing">Compare plans</Link>
       </section>
     </>
