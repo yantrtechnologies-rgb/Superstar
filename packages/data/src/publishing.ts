@@ -1,7 +1,7 @@
 import { Prisma, type PostState, type WorkspaceRole } from '@prisma/client';
 import { prisma } from './client';
 import { findNextPostingSlot } from './next-slot';
-import { uploadImage } from './assets';
+import { uploadPostAsset } from './assets';
 import { ProviderConfigurationError, type ProviderId } from './provider-contract';
 import { getProvider, validateProviderPost } from './providers';
 import { canManageTeam, WorkspaceAccessError } from './workspaces';
@@ -74,7 +74,7 @@ type FollowUpDraft = { text: string; delayMinutes: number };
 
 export async function savePost(
   userId: string, slug: string, content: string, postId?: string, revision?: number,
-  image?: Uint8Array<ArrayBuffer>, followUp?: FollowUpDraft | null, createRequestKey?: string,
+  media?: { bytes: Uint8Array<ArrayBuffer>; type: string }, followUp?: FollowUpDraft | null, createRequestKey?: string,
 ) {
   if (followUp && (!followUp.text.trim() || followUp.text.length > 2000
     || !Number.isInteger(followUp.delayMinutes) || followUp.delayMinutes < 1 || followUp.delayMinutes > 10_080)) {
@@ -84,13 +84,13 @@ export async function savePost(
     followUpText: followUp?.text.trim() ?? null, followUpDelayMinutes: followUp?.delayMinutes ?? null,
   };
 
-  if (createRequestKey && (postId || revision !== undefined || image)) {
+  if (createRequestKey && (postId || revision !== undefined || media)) {
     throw new WorkspaceAccessError('The request key can only create a text draft.');
   }
   if (!content.trim() || content.length > 4096) throw new WorkspaceAccessError('Use 1–4,096 characters.');
   const scoped = await requireScope(prisma, userId, slug);
   if (!canWritePosts(scoped.role)) throw new WorkspaceAccessError('You cannot edit drafts.');
-  const uploaded = image ? await uploadImage(scoped.workspaceId, image) : null;
+  const uploaded = media ? await uploadPostAsset(scoped.workspaceId, media.bytes, media.type) : null;
   return prisma.$transaction(async (tx) => {
     const { workspaceId, role } = await requireScope(tx, userId, slug);
     if (!canWritePosts(role)) throw new WorkspaceAccessError('You cannot edit drafts.');
@@ -155,7 +155,8 @@ export async function transitionPost(
       const draft = await tx.postRevision.findUniqueOrThrow({
         where: { postId_number: { postId, number: revision } },
       });
-      for (const channel of channels) validateProviderPost(channel.provider, draft.content, Boolean(draft.assetId));
+      const asset = draft.assetId ? await tx.asset.findUnique({ where: { id: draft.assetId }, select: { type: true } }) : null;
+      for (const channel of channels) validateProviderPost(channel.provider, draft.content, asset?.type);
       if (draft.followUpText && !channels.some((channel) => getProvider(channel.provider)?.reply)) {
         throw new ProviderConfigurationError('Select a Discord destination for the follow-up.');
       }

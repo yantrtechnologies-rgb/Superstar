@@ -171,3 +171,13 @@ Workspace owners and admins select **Continue with Facebook** in Channels, autho
 Connection scopes are `pages_show_list` and `pages_read_engagement`, plus `instagram_basic` for Instagram. External users require the corresponding Meta app permissions and review/access level. Development-mode testing uses eligible app-role accounts. Publishing permissions and publishing adapters for these two connectors remain pending.
 
 The callback consumes actor-bound OAuth state once. Account selections expire after ten minutes, contain encrypted server-side credentials and can be saved once. Reconnect after expiration or revoked authorization. Configure real app credentials and test one Page and one linked Instagram professional account before marking these connectors live-verified. [Meta manual login flow](https://developers.facebook.com/documentation/facebook-login/guides/advanced/manual-flow) · [Meta Instagram API collection](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api)
+
+## YouTube, LinkedIn and X connections
+
+Open **Team settings → Developer settings** for the exact callback URLs and configuration state for this installation. Keep every client secret and `TOKEN_ENCRYPTION_KEY` on the server.
+
+- YouTube: set `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET`, enable YouTube Data API v3 in Google Cloud, configure the consent screen, and register `APP_URL/api/connect/youtube`. The composer accepts an MP4 attachment; the first text line becomes the video title and remaining text becomes its description. Uploads default to private. [YouTube videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert)
+- LinkedIn: set `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET` and register `APP_URL/api/connect/linkedin`. The current connector publishes member-profile text posts.
+- X: set `X_CLIENT_ID` and `X_CLIENT_SECRET`, enable OAuth 2.0 with read/write access, and register `APP_URL/api/connect/x`. The current connector publishes text posts and requests offline access for refresh tokens.
+
+Owners and admins connect or reconnect accounts in **Channels**. Connected accounts become destination choices in **Posts**; YouTube is selectable only when an MP4 is attached. Developer credentials configure the Superstar installation—each user still authorizes their own provider account through OAuth. Live publishing should first be verified with private/test destinations.

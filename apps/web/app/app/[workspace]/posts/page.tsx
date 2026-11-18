@@ -62,8 +62,8 @@ export default async function Posts({ params, searchParams }: {
             <PostFields workspace={workspace} />
             <label htmlFor="new-content">Post text</label>
             <textarea id="new-content" name="content" maxLength={4096} rows={4} required />
-            <label htmlFor="new-image">Optional image (PNG or JPEG, up to 2 MiB)</label>
-            <input id="new-image" type="file" name="image" accept="image/png,image/jpeg" />
+            <label htmlFor="new-media">Optional media (PNG/JPEG up to 2 MiB or MP4 up to 20 MiB)</label>
+            <input id="new-media" type="file" name="media" accept="image/png,image/jpeg,video/mp4" />
             <FollowUpFields id="new" />
             <button type="submit">Create draft</button>
           </form>
@@ -83,8 +83,8 @@ export default async function Posts({ params, searchParams }: {
                   <PostFields {...fields} />
                   <label htmlFor={post.id}>Post text</label>
                   <textarea id={post.id} name="content" maxLength={4096} rows={4} defaultValue={content} required />
-                  <label htmlFor={`image-${post.id}`}>Optional replacement image</label>
-                  <input id={`image-${post.id}`} type="file" name="image" accept="image/png,image/jpeg" />
+                  <label htmlFor={`media-${post.id}`}>Optional replacement media</label>
+                  <input id={`media-${post.id}`} type="file" name="media" accept="image/png,image/jpeg,video/mp4" />
                   <FollowUpFields id={post.id} text={post.revisions[0]?.followUpText} delay={post.revisions[0]?.followUpDelayMinutes} />
                   <button type="submit">Save new revision</button>
                 </form>
@@ -93,7 +93,7 @@ export default async function Posts({ params, searchParams }: {
                 <p>Discord follow-up · {post.revisions[0].followUpDelayMinutes} minutes after publication</p>
                 <p className="post-content">{post.revisions[0].followUpText}</p>
               </div>}
-              {post.revisions[0]?.asset && <p>Attached image · {post.revisions[0].asset.type}</p>}
+              {post.revisions[0]?.asset && <p>Attached media · {post.revisions[0].asset.type}</p>}
               {post.revisions[0]?.channelIds.length ? (
                 <p>Destinations: {channels.filter(({ id }) => post.revisions[0]?.channelIds.includes(id))
                   .map(({ name }) => '#' + name).join(', ')}</p>
@@ -111,7 +111,9 @@ export default async function Posts({ params, searchParams }: {
                           #{channel.name}
                           {!adapter && <small className="block">Publishing support is pending for this connection.</small>}
                           {adapter && <small className="block">{
-                            `${adapter.name} · ${adapter.textLimit} characters · ${adapter.requiresImage
+                            `${adapter.name} · ${adapter.textLimit} characters · ${adapter.requiresVideo
+                              ? 'MP4 video required'
+                              : adapter.requiresImage
                               ? `image required, ${adapter.imageCaptionLimit} character caption`
                               : adapter.imageCaptionLimit ? `${adapter.imageCaptionLimit} with image` : 'text only'}`
                           }</small>}

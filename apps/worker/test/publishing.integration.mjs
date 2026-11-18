@@ -138,7 +138,10 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
     const channels = await listChannels(owner.id, workspace.slug);
     const channelIds = channels.map((channel) => channel.id);
     const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jMioAAAAASUVORK5CYII=', 'base64'));
-    const draft = await savePost(owner.id, workspace.slug, 'Original campaign', undefined, undefined, png);
+    const draft = await savePost(owner.id, workspace.slug, 'Original campaign', undefined, undefined, {
+      bytes: png,
+      type: 'image/png',
+    });
     await transitionPost(owner.id, workspace.slug, draft.id, 1, 'IN_REVIEW', channelIds);
     await transitionPost(owner.id, workspace.slug, draft.id, 1, 'APPROVED');
     const edited = await savePost(owner.id, workspace.slug, 'Updated campaign', draft.id, 1);
@@ -317,8 +320,8 @@ test('Slack validates capabilities and retains a confirmed write when link looku
     return Response.json({ ok: true, permalink: 'https://example.slack.com/archives/C000000001/p1234567890123456' });
   };
   try {
-    assert.throws(() => validateProviderPost('slack', 'Attachment', true), ProviderConfigurationError);
-    assert.throws(() => validateProviderPost('telegram', 'a'.repeat(1025), true), ProviderConfigurationError);
+    assert.throws(() => validateProviderPost('slack', 'Attachment', 'image/png'), ProviderConfigurationError);
+    assert.throws(() => validateProviderPost('telegram', 'a'.repeat(1025), 'image/png'), ProviderConfigurationError);
     await assert.rejects(providers.slack.discover('another-tenant', channelId), ProviderConfigurationError);
     assert.deepEqual(await providers.slack.discover(workspace, channelId), { name: 'updates' });
     const channel = { externalId: channelId, guildId: null };

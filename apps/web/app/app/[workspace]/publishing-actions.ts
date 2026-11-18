@@ -1,7 +1,9 @@
 'use server';
 
 import {
-  AssetStorageError, beginLinkedInConnection, cancelPost, connectChannel, disconnectLinkedIn, ProviderConfigurationError, PostingSlotUnavailableError, imageLimit, providerIds, providers, savePost, schedulePost,
+  AssetStorageError, beginLinkedInConnection, beginXConnection, beginYouTubeConnection, cancelPost, connectChannel,
+  disconnectLinkedIn, disconnectX, disconnectYouTube, ProviderConfigurationError, PostingSlotUnavailableError,
+  imageLimit, videoLimit, providerIds, providers, savePost, schedulePost,
   transitionPost, WorkspaceAccessError,
 } from '@cadencedesk/data';
 import { redirect } from 'next/navigation';
@@ -47,15 +49,18 @@ export async function savePostAction(form: FormData) {
   await run(form, 'posts', async (actor, slug) => {
     const content = z.string().trim().min(1).max(4096).parse(form.get('content'));
     const current = form.has('postId') ? postFields(form) : null;
-    const file = form.get('image');
-    if (file instanceof File && file.size > imageLimit) throw new AssetStorageError('Image exceeds 2 MiB.');
-    const image = file instanceof File && file.size ? new Uint8Array(await file.arrayBuffer()) : undefined;
+    const file = form.get('media');
+    if (file instanceof File && file.size > (file.type === 'video/mp4' ? videoLimit : imageLimit)) {
+      throw new AssetStorageError('Attachment exceeds its upload limit.');
+    }
+    const media = file instanceof File && file.size
+      ? { bytes: new Uint8Array(await file.arrayBuffer()), type: file.type } : undefined;
     const followUpText = form.has('followUpText') ? z.string().trim().max(2000).parse(form.get('followUpText')) : undefined;
     const followUp = followUpText === undefined ? undefined : followUpText ? {
       text: followUpText,
       delayMinutes: z.coerce.number().int().min(1).max(10_080).parse(form.get('followUpDelay')),
     } : null;
-    return savePost(actor, slug, content, current?.postId, current?.revision, image, followUp);
+    return savePost(actor, slug, content, current?.postId, current?.revision, media, followUp);
   });
 }
 
@@ -101,6 +106,26 @@ export async function startLinkedInAction(form: FormData) {
 export async function disconnectLinkedInAction(form: FormData) {
   await run(form, 'channels', async (actor, slug) => {
     await disconnectLinkedIn(actor, slug, z.uuid().parse(form.get('channelId')));
+    redirect(`/app/${slug}/channels?status=disconnected`);
+  });
+}
+
+export async function startOAuthAction(form: FormData) {
+  await run(form, 'channels', async (actor, slug) => {
+    const provider = z.enum(['linkedin', 'youtube', 'x']).parse(form.get('provider'));
+    const destination = provider === 'linkedin' ? await beginLinkedInConnection(actor, slug)
+      : provider === 'youtube' ? await beginYouTubeConnection(actor, slug) : await beginXConnection(actor, slug);
+    redirect(destination);
+  });
+}
+
+export async function disconnectOAuthAction(form: FormData) {
+  await run(form, 'channels', async (actor, slug) => {
+    const provider = z.enum(['linkedin', 'youtube', 'x']).parse(form.get('provider'));
+    const channelId = z.uuid().parse(form.get('channelId'));
+    if (provider === 'linkedin') await disconnectLinkedIn(actor, slug, channelId);
+    else if (provider === 'youtube') await disconnectYouTube(actor, slug, channelId);
+    else await disconnectX(actor, slug, channelId);
     redirect(`/app/${slug}/channels?status=disconnected`);
   });
 }

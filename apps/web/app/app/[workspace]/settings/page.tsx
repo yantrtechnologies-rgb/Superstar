@@ -23,6 +23,7 @@ export default async function TeamSettings({ params, searchParams }: {
     <>
       <h1>Team settings</h1>
       {canManageTeam(team.role) && <Link href={`/app/${slug}/settings/api-keys`}>Manage API keys</Link>}
+      {canManageTeam(team.role) && <p><Link href={`/app/${slug}/settings/developer`}>Provider developer settings</Link></p>}
       <h2>{team.workspace.name}</h2>
       <ul className="workspaces-list">
         {team.workspace.memberships.map(({ user: member, role }) => (

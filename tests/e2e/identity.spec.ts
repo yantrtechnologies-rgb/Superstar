@@ -156,11 +156,53 @@ test('connect and disconnect a LinkedIn profile through the OAuth callback', asy
       await route.fulfill({ status: 303, headers: { Location: callback.href }, body: '' });
     });
     await page.getByRole('link', { name: 'Channels', exact: true }).click();
-    await page.getByRole('button', { name: 'Authorize or reconnect LinkedIn' }).click();
+    await page.getByRole('button', { name: 'Authorize or reconnect LinkedIn profile' }).click();
     await expect(page.getByRole('status')).toHaveText('Channel connected.');
     await expect(page.getByText('Authorized', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Disconnect Browser Fixture Member' }).click();
     await expect(page.getByText('Reconnect required', { exact: true })).toBeVisible();
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { email } });
+    await prisma.$disconnect();
+  }
+});
+
+test('connect YouTube and X through their OAuth callbacks and enable destinations', async ({ page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  const email = `youtube-x-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Video and X Workspace');
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
+  try {
+    await page.route(/^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth\?/, async (route) => {
+      const authorization = new URL(route.request().url());
+      const callback = new URL(authorization.searchParams.get('redirect_uri')!);
+      expect(callback.pathname).toBe('/api/connect/youtube');
+      callback.searchParams.set('state', authorization.searchParams.get('state')!);
+      callback.searchParams.set('code', 'fixture-youtube-code');
+      await route.fulfill({ status: 303, headers: { Location: callback.href }, body: '' });
+    });
+    await page.route(/^https:\/\/x\.com\/i\/oauth2\/authorize\?/, async (route) => {
+      const authorization = new URL(route.request().url());
+      const callback = new URL(authorization.searchParams.get('redirect_uri')!);
+      expect(callback.pathname).toBe('/api/connect/x');
+      callback.searchParams.set('state', authorization.searchParams.get('state')!);
+      callback.searchParams.set('code', 'fixture-x-code');
+      await route.fulfill({ status: 303, headers: { Location: callback.href }, body: '' });
+    });
+    await page.goto(path + '/channels');
+    await page.getByRole('button', { name: 'Authorize or reconnect YouTube channel' }).click();
+    await expect(page.getByRole('status')).toHaveText('Channel connected.');
+    await page.getByRole('button', { name: 'Authorize or reconnect X account' }).click();
+    await expect.poll(() => prisma.channel.count({
+      where: { workspaceId: workspace.id, provider: { in: ['youtube', 'x'] } },
+    })).toBe(2);
+    await page.goto(path + '/posts');
+    await page.getByLabel('Post text').first().fill('Connector destination verification');
+    await page.getByRole('button', { name: 'Create draft' }).click();
+    await expect(page.getByRole('checkbox', { name: /Fixture YouTube/ })).toBeEnabled();
+    await expect(page.getByRole('checkbox', { name: /@fixture_x/ })).toBeEnabled();
   } finally {
     await prisma.workspace.delete({ where: { id: workspace.id } });
     await prisma.user.delete({ where: { email } });

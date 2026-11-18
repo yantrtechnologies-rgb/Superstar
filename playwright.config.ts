@@ -15,7 +15,7 @@ export default defineConfig({
     launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH },
   },
   webServer: {
-    command: 'node --import ./scripts/capture-resend.mjs --import ./scripts/mock-linkedin.mjs --import ./scripts/mock-meta.mjs --import ./scripts/mock-storage.mjs apps/web/node_modules/next/dist/bin/next start apps/web -H 127.0.0.1 -p 3930',
+    command: 'node --import ./scripts/capture-resend.mjs --import ./scripts/mock-linkedin.mjs --import ./scripts/mock-meta.mjs --import ./scripts/mock-youtube-x.mjs --import ./scripts/mock-storage.mjs apps/web/node_modules/next/dist/bin/next start apps/web -H 127.0.0.1 -p 3930',
     url: baseURL + '/health',
     env: {
       APP_URL: baseURL,
@@ -44,6 +44,10 @@ export default defineConfig({
       META_GRAPH_VERSION: 'v27.0',
       LINKEDIN_CLIENT_ID: 'playwright-linkedin-id',
       LINKEDIN_CLIENT_SECRET: 'playwright-linkedin-secret',
+      YOUTUBE_CLIENT_ID: 'playwright-youtube-id',
+      YOUTUBE_CLIENT_SECRET: 'playwright-youtube-secret',
+      X_CLIENT_ID: 'playwright-x-id',
+      X_CLIENT_SECRET: 'playwright-x-secret',
       TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 0x23).toString('base64'),
     },
   },

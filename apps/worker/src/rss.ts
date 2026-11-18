@@ -43,7 +43,7 @@ export async function recordFeedItems(id: string, entries: { sourceKey: string; 
       let readyToReview = Boolean(channels.length && channels.length === channelIds.length);
       if (readyToReview) {
         try {
-          for (const channel of channels) validateProviderPost(channel.provider, content, false);
+          for (const channel of channels) validateProviderPost(channel.provider, content);
         } catch (error) {
           if (!(error instanceof ProviderConfigurationError)) throw error;
           readyToReview = false;

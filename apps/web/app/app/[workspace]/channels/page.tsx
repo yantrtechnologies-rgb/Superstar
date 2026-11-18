@@ -3,7 +3,7 @@ import { metaConfiguration, canManageTeam, findMembership, getProvider, listChan
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireUser } from '../../../../lib/require-user';
-import { connectChannelAction, disconnectLinkedInAction, startLinkedInAction } from '../publishing-actions';
+import { connectChannelAction, disconnectOAuthAction, startOAuthAction } from '../publishing-actions';
 
 const messages: Record<string, string> = {
   saved: 'Channel connected.',
@@ -17,6 +17,8 @@ const messages: Record<string, string> = {
   unavailable: 'You do not have access to manage this connection.',
   provider: 'Check the workspace destination grant, bot configuration and provider access.',
   'linkedin-unavailable': 'LinkedIn authorization was unsuccessful. Check the app configuration and try again.',
+  'youtube-unavailable': 'YouTube authorization was unsuccessful. Check Google OAuth configuration and try again.',
+  'x-unavailable': 'X authorization was unsuccessful. Check the X app configuration and try again.',
 };
 
 export default async function Channels({ params, searchParams }: {
@@ -57,10 +59,11 @@ export default async function Channels({ params, searchParams }: {
                     <button type="submit">Disconnect {channel.name}</button>
                   </form>
                 )}
-                {channel.provider === 'linkedin' && canManage && credential && (
-                  <form action={disconnectLinkedInAction}>
+                {(['linkedin', 'youtube', 'x'].includes(channel.provider)) && canManage && credential && (
+                  <form action={disconnectOAuthAction}>
                     <input type="hidden" name="workspace" value={workspace} />
                     <input type="hidden" name="channelId" value={channel.id} />
+                    <input type="hidden" name="provider" value={channel.provider} />
                     <button type="submit">Disconnect {channel.name}</button>
                   </form>
                 )}
@@ -92,7 +95,7 @@ export default async function Channels({ params, searchParams }: {
           <p className="mt-3 text-sm">Connect accounts to select them as destinations and publish through Meta.</p>
         </section>
       ))}
-      {canManage && providerIds.map((id) => {
+      {canManage && providerIds.filter((id) => !['facebook', 'instagram'].includes(id)).map((id) => {
         const provider = providers[id];
         const configured = provider.kind === 'oauth' ? provider.configured()
           : Boolean(process.env[provider.tokenEnv] && process.env[provider.grantsEnv]);
@@ -109,9 +112,10 @@ export default async function Channels({ params, searchParams }: {
                 <button type="submit">Connect or refresh {provider.name}</button>
               </form>
             ) : (
-              <form action={startLinkedInAction}>
+              <form action={startOAuthAction}>
                 <input type="hidden" name="workspace" value={workspace} />
-                <button type="submit">Authorize or reconnect LinkedIn</button>
+                <input type="hidden" name="provider" value={id} />
+                <button type="submit">Authorize or reconnect {provider.name}</button>
               </form>
             )}
           </section>

@@ -68,6 +68,10 @@ export function uploadVideo(workspaceId: string, bytes: Uint8Array<ArrayBuffer>)
   return uploadAsset(workspaceId, bytes, videoType(bytes), 'mp4');
 }
 
+export function uploadPostAsset(workspaceId: string, bytes: Uint8Array<ArrayBuffer>, declaredType: string) {
+  return declaredType === 'video/mp4' ? uploadVideo(workspaceId, bytes) : uploadImage(workspaceId, bytes);
+}
+
 async function uploadAsset(workspaceId: string, bytes: Uint8Array<ArrayBuffer>, type: string, extension: string) {
   const key = `workspaces/${workspaceId}/assets/${randomUUID()}.${extension}`;
   const { client, bucket } = storage();

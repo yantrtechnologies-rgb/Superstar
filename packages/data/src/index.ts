@@ -21,3 +21,5 @@ export type { WebhookDeliveryState } from '@prisma/client';
 export * from './api-access';
 export * from './meta-connection';
 export * from './meta';
+export * from './youtube';
+export * from './x';

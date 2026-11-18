@@ -99,3 +99,11 @@
 - A consumer Facebook Login app rejected Page scopes during live setup. The verified configuration uses the Manage Pages and Instagram business use cases with Facebook Login for Business. Meta app `2414730979331172` showed the required discovery and publishing permissions as ready for testing on 2026-11-18.
 - Local live verification uses an account-less Cloudflare quick tunnel because Meta requires an HTTPS callback. Quick-tunnel hostnames are temporary and must be replaced in `APP_URL`, `AUTH_URL` and the app's exact Valid OAuth Redirect URI when rotated. Production requires a stable owned HTTPS origin.
 - Destination selection is covered by a focused Playwright scenario for both Facebook and Instagram, including encrypted credentials, one-time selection consumption and workspace isolation. A live post remains owner-controlled because it creates public external content; verify it only with explicit approval and a designated test Page/account.
+
+## YouTube, LinkedIn and X connections
+
+- Researched 2026-11-18. YouTube uses Google OAuth with `youtube.upload` and `youtube.readonly`, discovers the authorized channel, and uploads MP4 video through the resumable `videos.insert` flow. Uploads default to private; operators may set `YOUTUBE_DEFAULT_PRIVACY_STATUS` to `unlisted` or `public`.
+- X uses OAuth 2.0 Authorization Code with PKCE and the `tweet.read`, `tweet.write`, `users.read` and `offline.access` scopes. This checkpoint publishes text posts through `POST /2/tweets`; X media upload remains a separate connector enhancement.
+- LinkedIn retains its member-profile OAuth connector and text publishing path. Organization Pages, the current Posts API migration, images, documents and video are not claimed as complete.
+- OAuth state is actor- and workspace-bound, single use and short lived. Access and refresh tokens are encrypted at rest. Connect and disconnect operations are audited, and disconnected channels retain historical publication records.
+- Mocked browser tests verify OAuth callbacks and selectable destinations for LinkedIn, YouTube and X. Live verification requires owner-provided developer applications, exact callback registration, provider access approval and designated test accounts; no connector is labeled live-verified until a real external permalink is observed.

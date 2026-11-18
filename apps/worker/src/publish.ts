@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { createMetaAssetUrl, enqueuePublishedWebhooks, getProvider, prisma, readImage, validateProviderPost, AssetStorageError, ProviderConfigurationError, type PublishResult } from '@cadencedesk/data';
+import { createMetaAssetUrl, enqueuePublishedWebhooks, getProvider, prisma, readImage, readVideo, validateProviderPost, AssetStorageError, ProviderConfigurationError, type PublishResult } from '@cadencedesk/data';
 import { Client, WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
 
 export async function publishDestination(id: string): Promise<number | null> {
@@ -47,9 +47,11 @@ export async function publishDestination(id: string): Promise<number | null> {
     const parent = destination.parent;
     try {
       if (!destination.parentId) {
-        validateProviderPost(destination.channel.provider, revision.content, Boolean(asset));
+        validateProviderPost(destination.channel.provider, revision.content, asset?.type);
         const image = asset ? {
-          bytes: await readImage(asset, destination.post.workspaceId), type: asset.type,
+          bytes: asset.type === 'video/mp4'
+            ? await readVideo(asset, destination.post.workspaceId) : await readImage(asset, destination.post.workspaceId),
+          type: asset.type,
           url: destination.channel.provider === 'instagram'
             ? createMetaAssetUrl(asset.id, destination.post.workspaceId) : undefined,
         } : undefined;
@@ -57,7 +59,7 @@ export async function publishDestination(id: string): Promise<number | null> {
       } else if (parent?.state === 'PUBLISHED' && parent.externalId && parent.postId === destination.postId
         && parent.channelId === destination.channelId && parent.revision === destination.revision
         && revision.followUpText && provider.reply) {
-        validateProviderPost(destination.channel.provider, revision.followUpText, false);
+        validateProviderPost(destination.channel.provider, revision.followUpText);
         result = await provider.reply(destination.post.workspace.slug, destination.channel, nonce, revision.followUpText, parent.externalId);
       } else {
         result = { kind: 'failed', error: 'The approved follow-up or parent publication is unavailable.' };

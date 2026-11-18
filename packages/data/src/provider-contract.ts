@@ -1,4 +1,4 @@
-export const providerIds = ['discord', 'telegram', 'slack', 'linkedin', 'facebook', 'instagram'] as const;
+export const providerIds = ['discord', 'telegram', 'slack', 'linkedin', 'facebook', 'instagram', 'youtube', 'x'] as const;
 export type ProviderId = (typeof providerIds)[number];
 
 export class ProviderConfigurationError extends Error {}
@@ -16,6 +16,8 @@ type PublishingProvider = {
   textLimit: number;
   imageCaptionLimit: number | null;
   requiresImage?: boolean;
+  requiresVideo?: boolean;
+  acceptsVideo?: boolean;
   connectionHelp: string;
   publish(
     workspace: string, channel: PublishChannel,
