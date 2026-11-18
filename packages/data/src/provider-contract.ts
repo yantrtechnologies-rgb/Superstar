@@ -1,4 +1,4 @@
-export const providerIds = ['discord', 'telegram', 'slack', 'linkedin'] as const;
+export const providerIds = ['discord', 'telegram', 'slack', 'linkedin', 'facebook', 'instagram'] as const;
 export type ProviderId = (typeof providerIds)[number];
 
 export class ProviderConfigurationError extends Error {}
@@ -8,13 +8,14 @@ export type PublishResult =
   | { kind: 'retry'; delayMs: number }
   | { kind: 'failed' | 'uncertain'; error: string };
 
-export type PublishingImage = { bytes: Uint8Array<ArrayBuffer>; type: string };
+export type PublishingImage = { bytes: Uint8Array<ArrayBuffer>; type: string; url?: string };
 type PublishChannel = { id: string; workspaceId: string; externalId: string; guildId: string | null };
 
 type PublishingProvider = {
   name: string;
   textLimit: number;
   imageCaptionLimit: number | null;
+  requiresImage?: boolean;
   connectionHelp: string;
   publish(
     workspace: string, channel: PublishChannel,

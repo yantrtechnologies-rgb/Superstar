@@ -61,7 +61,8 @@ export async function beginMetaConnection(userId: string, slug: string, provider
   const state = randomBytes(32).toString('base64url');
   const url = new URL('https://www.facebook.com/' + config.version + '/dialog/oauth');
   const scopes = ['pages_show_list', 'pages_read_engagement'];
-  if (provider === 'instagram') scopes.push('instagram_basic');
+  if (provider === 'facebook') scopes.push('pages_manage_posts');
+  else scopes.push('instagram_basic', 'instagram_content_publish');
   url.search = new URLSearchParams({
     client_id: config.appId, redirect_uri: config.callback, state, response_type: 'code',
     scope: scopes.join(','), auth_type: 'rerequest',
@@ -98,7 +99,8 @@ export async function completeMetaConnection(userId: string, state: string, code
     }));
     const permissions = z.object({ data: z.array(z.object({ permission: z.string(), status: z.string() })) })
       .parse(await graph('me/permissions', {}, long.access_token));
-    const required = ['pages_show_list', 'pages_read_engagement', ...(provider === 'instagram' ? ['instagram_basic'] : [])];
+    const required = ['pages_show_list', 'pages_read_engagement', ...(provider === 'facebook'
+      ? ['pages_manage_posts'] : ['instagram_basic', 'instagram_content_publish'])];
     if (required.some((name) => !permissions.data.some((p) => p.permission === name && p.status === 'granted'))) {
       return base + '?status=meta-permissions';
     }

@@ -111,8 +111,9 @@ export default async function Posts({ params, searchParams }: {
                           #{channel.name}
                           {!adapter && <small className="block">Publishing support is pending for this connection.</small>}
                           {adapter && <small className="block">{
-                            `${adapter.name} · ${adapter.textLimit} characters · ${adapter.imageCaptionLimit
-                              ? `${adapter.imageCaptionLimit} with image` : 'text only'}`
+                            `${adapter.name} · ${adapter.textLimit} characters · ${adapter.requiresImage
+                              ? `image required, ${adapter.imageCaptionLimit} character caption`
+                              : adapter.imageCaptionLimit ? `${adapter.imageCaptionLimit} with image` : 'text only'}`
                           }</small>}
                         </label>
                       );

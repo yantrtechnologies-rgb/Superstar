@@ -48,7 +48,7 @@ export default async function Channels({ params, searchParams }: {
                   !credential || credential.revokedAt ? 'Reconnect required'
                     : credential.accessExpiresAt.getTime() <= Date.now() ? 'Access token expired' : 'Authorized'
                 }</span>}
-                {meta && <span>Publishing support is pending for this account.</span>}
+                {meta && <span>Ready for draft selection and scheduled publishing.</span>}
                 {meta && canManage && credential && (
                   <form action={metaConnectionAction}>
                     <input type="hidden" name="intent" value="disconnect" />
@@ -89,7 +89,7 @@ export default async function Channels({ params, searchParams }: {
               <a href="https://developers.facebook.com/apps/" target="_blank" rel="noreferrer">Open Meta app dashboard</a>
             </details>
           )}
-          <p className="mt-3 text-sm">You can connect accounts now once Meta is configured. Publishing support is pending.</p>
+          <p className="mt-3 text-sm">Connect accounts to select them as destinations and publish through Meta.</p>
         </section>
       ))}
       {canManage && providerIds.map((id) => {

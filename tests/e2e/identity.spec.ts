@@ -544,6 +544,10 @@ test('Facebook and Instagram connections select accounts, reject replay and isol
       await expect(page.getByRole('status')).toHaveText('Channel connected.');
       const provider = kind === 'Pages' ? 'facebook' : 'instagram';
       const channel = await prisma.channel.findFirstOrThrow({ where: { workspaceId: workspace.id, provider }, include: { credential: true } });
+      await page.goto(path + '/posts');
+      await page.getByLabel('Post text').first().fill(`Destination selection for ${name}`);
+      await page.getByRole('button', { name: 'Create draft' }).click();
+      await expect(page.getByRole('checkbox', { name: new RegExp(name) }).first()).toBeEnabled();
       expect(channel.credential!.accessToken).toMatch(/^v1\./);
       expect(channel.credential!.accessToken).not.toContain('fixture-page-token');
       await expect(saveMetaAccounts(owner.id, workspace.slug, selection, [channel.externalId])).rejects.toBeInstanceOf(WorkspaceAccessError);

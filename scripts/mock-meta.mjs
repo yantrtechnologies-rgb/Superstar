@@ -13,7 +13,8 @@ globalThis.fetch = async (input, init) => {
   }
   if (init?.headers?.Authorization !== 'Bearer fixture-meta-user') return Response.json({}, { status: 401 });
   if (path === 'me/permissions') return Response.json({ data: [
-    'pages_show_list', 'pages_read_engagement', 'instagram_basic',
+    'pages_show_list', 'pages_read_engagement', 'pages_manage_posts',
+    'instagram_basic', 'instagram_content_publish',
   ].map((permission) => ({ permission, status: 'granted' })) });
   if (path === 'me/accounts') return Response.json({ data: [
     { id: '1234567890', name: 'Fieldwork Page', access_token: 'fixture-page-token',

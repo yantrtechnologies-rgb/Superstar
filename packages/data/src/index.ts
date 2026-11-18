@@ -20,3 +20,4 @@ export { pinPublicIpv4 } from './outbound';
 export type { WebhookDeliveryState } from '@prisma/client';
 export * from './api-access';
 export * from './meta-connection';
+export * from './meta';

@@ -1,10 +1,16 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export const imageLimit = 2 * 1024 * 1024;
 export const videoLimit = 20 * 1024 * 1024;
 export class AssetStorageError extends Error {}
+
+function deliverySecret() {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret || secret.length < 32) throw new AssetStorageError('Asset delivery signing is unavailable.');
+  return secret;
+}
 
 function storage() {
   const endpoint = process.env.OBJECT_STORAGE_ENDPOINT;
@@ -86,6 +92,33 @@ type StoredAsset = { key: string; type: string; size: number; checksum: string }
 
 export function readImage(asset: StoredAsset, workspaceId: string) {
   return readAsset(asset, workspaceId, imageLimit, imageType);
+}
+
+export function createMetaAssetUrl(assetId: string, workspaceId: string) {
+  const origin = process.env.APP_URL;
+  if (!origin) throw new AssetStorageError('Public application URL is unavailable.');
+  const expires = Date.now() + 10 * 60_000;
+  const payload = Buffer.from(JSON.stringify({ assetId, workspaceId, expires })).toString('base64url');
+  const signature = createHmac('sha256', deliverySecret()).update(payload).digest('base64url');
+  return new URL(`/api/media/meta/${payload}.${signature}`, origin).href;
+}
+
+export function verifyMetaAssetToken(token: string) {
+  const [payload, signature] = token.split('.');
+  if (!payload || !signature) throw new AssetStorageError('Invalid media delivery token.');
+  const expected = createHmac('sha256', deliverySecret()).update(payload).digest();
+  let actual: Buffer;
+  try { actual = Buffer.from(signature, 'base64url'); } catch { throw new AssetStorageError('Invalid media delivery token.'); }
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new AssetStorageError('Invalid media delivery token.');
+  let value: unknown;
+  try { value = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch { throw new AssetStorageError('Invalid media delivery token.'); }
+  if (!value || typeof value !== 'object') throw new AssetStorageError('Invalid media delivery token.');
+  const { assetId, workspaceId, expires } = value as Record<string, unknown>;
+  if (typeof assetId !== 'string' || typeof workspaceId !== 'string' || typeof expires !== 'number'
+    || !/^[0-9a-f-]{36}$/i.test(assetId) || !/^[0-9a-f-]{36}$/i.test(workspaceId) || expires < Date.now()) {
+    throw new AssetStorageError('Media delivery token expired or is invalid.');
+  }
+  return { assetId, workspaceId };
 }
 
 export function readVideo(asset: StoredAsset, workspaceId: string) {

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { enqueuePublishedWebhooks, getProvider, prisma, readImage, validateProviderPost, AssetStorageError, ProviderConfigurationError, type PublishResult } from '@cadencedesk/data';
+import { createMetaAssetUrl, enqueuePublishedWebhooks, getProvider, prisma, readImage, validateProviderPost, AssetStorageError, ProviderConfigurationError, type PublishResult } from '@cadencedesk/data';
 import { Client, WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
 
 export async function publishDestination(id: string): Promise<number | null> {
@@ -48,7 +48,11 @@ export async function publishDestination(id: string): Promise<number | null> {
     try {
       if (!destination.parentId) {
         validateProviderPost(destination.channel.provider, revision.content, Boolean(asset));
-        const image = asset ? { bytes: await readImage(asset, destination.post.workspaceId), type: asset.type } : undefined;
+        const image = asset ? {
+          bytes: await readImage(asset, destination.post.workspaceId), type: asset.type,
+          url: destination.channel.provider === 'instagram'
+            ? createMetaAssetUrl(asset.id, destination.post.workspaceId) : undefined,
+        } : undefined;
         result = await provider.publish(destination.post.workspace.slug, destination.channel, nonce, revision.content, image);
       } else if (parent?.state === 'PUBLISHED' && parent.externalId && parent.postId === destination.postId
         && parent.channelId === destination.channelId && parent.revision === destination.revision
