@@ -51,9 +51,17 @@ export default async function Posts({ params, searchParams }: {
   const [posts, channels] = await Promise.all([listPosts(user.id, workspace), listChannels(user.id, workspace)]);
   const canWrite = canWritePosts(membership.role);
   const canApprove = canApprovePosts(membership.role);
+  const earliestSchedule = new Date(Date.now() + 60_000).toISOString().slice(0, 16);
   return (
     <>
       <h1>Posts</h1>
+      <section className="schedule-guide" aria-labelledby="schedule-guide-title">
+        <div>
+          <h2 id="schedule-guide-title">Schedule your content</h2>
+          <p>Create a draft, choose destinations, approve the revision, then publish immediately or select a date and time.</p>
+        </div>
+        <Link href={`/app/${workspace}/calendar`}>Open content calendar</Link>
+      </section>
       {status && Object.hasOwn(messages, status) && <p role="status">{messages[status]}</p>}
       {canWrite && (
         <section>
@@ -158,13 +166,28 @@ export default async function Posts({ params, searchParams }: {
               {canApprove && post.state === 'IN_REVIEW' && (
                 <form action={approvePostAction}><PostFields {...fields} /><button type="submit">Approve revision</button></form>
               )}
+              {canWrite && ['DRAFT', 'IN_REVIEW'].includes(post.state) && (
+                <section className="schedule-panel" aria-label="Scheduling status">
+                  <h3>Schedule</h3>
+                  <p>{post.state === 'DRAFT'
+                    ? 'Choose destinations and request approval to unlock scheduling.'
+                    : 'Approve this revision to unlock date, time, and publish-now controls.'}</p>
+                  <fieldset disabled>
+                    <label htmlFor={`locked-due-${post.id}`}>Schedule date and time (UTC)</label>
+                    <input type="datetime-local" id={`locked-due-${post.id}`} />
+                    <button type="button">Schedule post</button>
+                  </fieldset>
+                </section>
+              )}
               {canWrite && post.state === 'APPROVED' && (channels.length ? (
-                <form action={schedulePostAction} className="identity-form">
+                <form action={schedulePostAction} className="identity-form schedule-panel">
                   <PostFields {...fields} />
                   {post.revisions[0]?.channelIds.map((id) => <input key={id} type="hidden" name="channel" value={id} />)}
-                  <label htmlFor={`due-${post.id}`}>Schedule time (UTC)</label>
-                  <input type="datetime-local" id={`due-${post.id}`} name="dueAt" />
-                  <button type="submit" name="mode" value="schedule">Schedule</button>
+                  <h3>Schedule</h3>
+                  <p>Times are stored in UTC and displayed in {membership.workspace.timeZone} on the content calendar.</p>
+                  <label htmlFor={`due-${post.id}`}>Schedule date and time (UTC)</label>
+                  <input type="datetime-local" id={`due-${post.id}`} name="dueAt" min={earliestSchedule} />
+                  <button type="submit" name="mode" value="schedule">Schedule post</button>
                   <button type="submit" name="mode" value="next">Use next shared slot</button>
                   <button type="submit" name="mode" value="now">Publish now</button>
                 </form>

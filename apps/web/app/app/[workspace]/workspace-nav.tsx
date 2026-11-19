@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const pages = [
-  ['', 'Overview'], ['/calendar', 'Agenda'], ['/posts', 'Posts'], ['/channels', 'Channels'],
+  ['', 'Overview'], ['/calendar', 'Content calendar'], ['/posts', 'Posts'], ['/channels', 'Channels'],
   ['/analytics', 'Analytics'], ['/studio', 'AI Studio'], ['/automations', 'Automations'],
   ['/settings', 'Team settings'],
 ] as const;
