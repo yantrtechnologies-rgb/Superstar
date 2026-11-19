@@ -73,7 +73,7 @@ export default function Home() {
       </section>
       <footer className="public-nav">
         <Link href="/" className="wordmark">Superstar</Link>
-        <div><Link href="/pricing">Pricing</Link><Link href={connect}>Connect channels</Link></div>
+        <div><Link href="/pricing">Pricing</Link><Link href={connect}>Connect channels</Link><Link href="/legal/privacy">Privacy</Link><Link href="/legal/terms">Terms</Link></div>
       </footer>
     </main>
   );

@@ -107,3 +107,9 @@
 - LinkedIn uses the versioned Posts API for member-profile text publishing. When the operator has Community Management API access and enables organization support, the OAuth grant discovers Pages administered by that member and stores each as a selectable workspace destination. Images, documents and video are not claimed as complete.
 - OAuth state is actor- and workspace-bound, single use and short lived. Access and refresh tokens are encrypted at rest. Connect and disconnect operations are audited, and disconnected channels retain historical publication records.
 - Mocked browser tests verify OAuth callbacks and selectable destinations for LinkedIn, YouTube and X. Live verification requires owner-provided developer applications, exact callback registration, provider access approval and designated test accounts; no connector is labeled live-verified until a real external permalink is observed.
+
+## Public OAuth origin and legal routes
+
+- Vercel provides the stable HTTPS origin used for public legal pages and provider callback registration. The public privacy, terms and data-deletion routes describe the implemented account, workspace and connector behavior and use the configured support contact.
+- Meta receives `/legal/privacy`, `/legal/terms`, `/legal/data-deletion` and `/api/connect/meta` on that production origin. LinkedIn receives `/api/connect/linkedin`; organization destinations remain dynamically limited to Pages administered by the authenticating member rather than hard-coded to an operator Page.
+- Production web builds use Next.js webpack because Next 16 Turbopack repeatedly failed while spawning the PostCSS evaluator on the Windows Node 26 development host. TypeScript, lint, tests and the webpack production build remain the release checkpoint.
