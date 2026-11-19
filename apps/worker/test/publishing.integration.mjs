@@ -353,6 +353,7 @@ test('LinkedIn OAuth binds one-time state to its actor and refreshes encrypted c
   Object.assign(process.env, {
     LINKEDIN_CLIENT_ID: 'fixture-client',
     LINKEDIN_CLIENT_SECRET: 'fixture-secret',
+    LINKEDIN_ORGANIZATION_ENABLED: 'true',
     APP_URL: 'http://127.0.0.1:3930',
     TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 0x19).toString('base64'),
   });
@@ -372,7 +373,8 @@ test('LinkedIn OAuth binds one-time state to its actor and refreshes encrypted c
         assert.equal(init.body.get('code'), 'fixture-linkedin-code');
         return Response.json({
           access_token: 'fixture-initial-access', expires_in: 3600, refresh_token: 'fixture-refresh',
-          refresh_token_expires_in: 7200, scope: 'openid profile w_member_social',
+          refresh_token_expires_in: 7200,
+          scope: 'openid profile w_member_social r_organization_admin w_organization_social',
         });
       }
       assert.equal(grant, 'refresh_token');
@@ -385,9 +387,20 @@ test('LinkedIn OAuth binds one-time state to its actor and refreshes encrypted c
       assert.equal(init.headers.Authorization, 'Bearer fixture-initial-access');
       return Response.json({ sub: 'fixture-member-01', name: 'LinkedIn Fixture Member' });
     }
-    assert.equal(url.href, 'https://api.linkedin.com/v2/ugcPosts');
+    if (url.pathname === '/rest/organizationAcls') {
+      assert.equal(url.searchParams.get('q'), 'roleAssignee');
+      assert.equal(init.headers.Authorization, 'Bearer fixture-initial-access');
+      return Response.json({ elements: [{ organization: 'urn:li:organization:987654' }] });
+    }
+    if (url.href === 'https://api.linkedin.com/rest/organizations/987654') {
+      return Response.json({ localizedName: 'Fixture Company Page' });
+    }
+    assert.equal(url.href, 'https://api.linkedin.com/rest/posts');
     writes++;
-    assert.equal(JSON.parse(init.body).author, 'urn:li:person:fixture-member-01');
+    const body = JSON.parse(init.body);
+    assert.equal(body.author, 'urn:li:person:fixture-member-01');
+    assert.equal(body.commentary, 'Hello from Superstar');
+    assert.equal(init.headers['LinkedIn-Version'], '202609');
     if (init.headers.Authorization === 'Bearer fixture-refreshed-1') return new Response(null, { status: 401 });
     assert.equal(init.headers.Authorization, 'Bearer fixture-refreshed-2');
     return new Response(null, { status: 201, headers: { 'x-restli-id': 'urn:li:ugcPost:1234567890123456789' } });
@@ -396,7 +409,7 @@ test('LinkedIn OAuth binds one-time state to its actor and refreshes encrypted c
     await assert.rejects(beginLinkedInConnection(wrongUser.id, workspace.slug), WorkspaceAccessError);
     const authUrl = new URL(await beginLinkedInConnection(owner.id, workspace.slug));
     assert.equal(authUrl.origin, 'https://www.linkedin.com');
-    assert.equal(authUrl.searchParams.get('scope'), 'openid profile w_member_social');
+    assert.equal(authUrl.searchParams.get('scope'), 'openid profile w_member_social r_organization_admin w_organization_social');
     const state = authUrl.searchParams.get('state');
     assert.ok(state);
     assert.equal(await prisma.oAuthState.findUnique({ where: { hash: state } }), null);
@@ -406,7 +419,15 @@ test('LinkedIn OAuth binds one-time state to its actor and refreshes encrypted c
     await assert.rejects(completeLinkedInConnection(owner.id, state, 'fixture-linkedin-code'), ProviderConfigurationError);
     assert.equal(exchanges, 1);
 
-    const channel = await prisma.channel.findFirstOrThrow({ where: { workspaceId: workspace.id } });
+    assert.equal(await prisma.channel.count({ where: { workspaceId: workspace.id, provider: 'linkedin' } }), 2);
+    const channel = await prisma.channel.findFirstOrThrow({
+      where: { workspaceId: workspace.id, externalId: 'person:fixture-member-01' },
+    });
+    const page = await prisma.channel.findFirstOrThrow({
+      where: { workspaceId: workspace.id, externalId: 'organization:987654' },
+    });
+    assert.equal(page.name, 'Fixture Company Page');
+    assert.ok(await prisma.providerCredential.findUnique({ where: { channelId: page.id } }));
     const encrypted = await prisma.providerCredential.findUniqueOrThrow({ where: { channelId: channel.id } });
     assert.ok(encrypted.accessToken.startsWith('v1.'));
     assert.ok(!encrypted.accessToken.includes('fixture-initial-access'));

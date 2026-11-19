@@ -188,6 +188,17 @@ body { background: var(--canvas); color: var(--ink); }
 .developer-grid dt { font-weight: 700; }
 .developer-grid dd { overflow-wrap: anywhere; color: var(--muted); }
 
+.calendar-controls { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 1.5rem 0 .75rem; }
+.content-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 1rem; overflow: hidden; margin-bottom: 2rem; background: white; }
+.calendar-weekday { padding: .65rem; background: #e8f3ec; font-size: .78rem; font-weight: 700; text-align: center; }
+.calendar-day { min-height: 8.5rem; padding: .55rem; border-top: 1px solid var(--line); border-right: 1px solid var(--line); }
+.calendar-day:nth-child(7n) { border-right: 0; }
+.calendar-day > time { display: block; font-size: .78rem; font-weight: 700; margin-bottom: .4rem; }
+.calendar-day-empty { background: #f7f8f6; }
+.calendar-post { display: block; padding: .45rem; margin-bottom: .35rem; border-radius: .55rem; background: #d7f1e3; color: inherit; text-decoration: none; }
+.calendar-post span, .calendar-post small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-post small { opacity: .72; margin-top: .15rem; }
+
 @media (min-width: 641px) {
   .workspace-shell aside { position: sticky; top: 0; height: 100dvh; overflow-y: auto; }
 }
@@ -198,6 +209,10 @@ body { background: var(--canvas); color: var(--ink); }
   .workspace-shell aside { gap: .8rem; padding: .8rem 1rem; }
   .workspace-shell nav { display: flex; flex-wrap: wrap; align-items: center; }
   .workspace-shell nav a { padding: .45rem .55rem; }
+  .calendar-weekday { padding: .4rem .15rem; font-size: .68rem; }
+  .calendar-day { min-height: 4.2rem; padding: .3rem; }
+  .calendar-post { padding: .3rem; }
+  .calendar-post small { display: none; }
 }
 
 .pricing-card { border-color: var(--line); box-shadow: 0 4px 16px #173a2d09; }

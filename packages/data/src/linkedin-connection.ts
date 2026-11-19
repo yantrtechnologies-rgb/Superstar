@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from './client';
-import { linkedInAuthorization, linkedInMember, linkedInTokens, LinkedInAuthorizationError, type LinkedInTokens } from './linkedin-api';
+import { linkedInAuthorization, linkedInDestinations, linkedInTokens, LinkedInAuthorizationError, type LinkedInTokens } from './linkedin-api';
 import { ProviderConfigurationError } from './provider-contract';
 import { openToken, sealToken } from './token-vault';
 import { canManageTeam, WorkspaceAccessError } from './workspaces';
@@ -54,21 +54,23 @@ export async function completeLinkedInConnection(userId: string, state: string, 
   if (!code) return { slug: grant.workspace.slug, connected: false };
   try {
     const tokens = await linkedInTokens({ code });
-    const profile = await linkedInMember(tokens.access);
+    const destinations = await linkedInDestinations(tokens.access);
     await prisma.$transaction(async (tx) => {
       await requireManager(tx, userId, grant.workspaceId);
-      const channel = await tx.channel.upsert({
-        where: { workspaceId_provider_externalId: { workspaceId: grant.workspaceId, provider, externalId: profile.externalId } },
-        create: { workspaceId: grant.workspaceId, provider, ...profile },
-        update: { name: profile.name },
-      });
-      const values = encryptedTokens(tokens, scope(grant.workspaceId, channel.id));
-      await tx.providerCredential.upsert({
-        where: { channelId: channel.id }, create: { channelId: channel.id, ...values }, update: values,
-      });
-      await tx.auditEvent.create({
-        data: { workspaceId: grant.workspaceId, actorId: userId, subjectId: channel.id, action: 'channel.oauth_connected' },
-      });
+      for (const destination of destinations) {
+        const channel = await tx.channel.upsert({
+          where: { workspaceId_provider_externalId: { workspaceId: grant.workspaceId, provider, externalId: destination.externalId } },
+          create: { workspaceId: grant.workspaceId, provider, ...destination },
+          update: { name: destination.name },
+        });
+        const values = encryptedTokens(tokens, scope(grant.workspaceId, channel.id));
+        await tx.providerCredential.upsert({
+          where: { channelId: channel.id }, create: { channelId: channel.id, ...values }, update: values,
+        });
+        await tx.auditEvent.create({
+          data: { workspaceId: grant.workspaceId, actorId: userId, subjectId: channel.id, action: 'channel.oauth_connected' },
+        });
+      }
     });
     return { slug: grant.workspace.slug, connected: true };
   } catch (error) {

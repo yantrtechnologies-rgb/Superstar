@@ -1,8 +1,24 @@
 import { ProviderConfigurationError, retryAfter, type PublishResult } from './provider-contract';
 import { vaultConfigured } from './token-vault';
 
-const scopes = ['openid', 'profile', 'w_member_social'];
 const tokenEndpoint = 'https://www.linkedin.com/oauth/v2/accessToken';
+
+function organizationEnabled() {
+  return process.env.LINKEDIN_ORGANIZATION_ENABLED === 'true';
+}
+
+function scopes() {
+  return ['openid', 'profile', 'w_member_social', ...(organizationEnabled()
+    ? ['r_organization_admin', 'w_organization_social'] : [])];
+}
+
+function marketingHeaders(access: string) {
+  return {
+    Authorization: `Bearer ${access}`,
+    'LinkedIn-Version': process.env.LINKEDIN_VERSION || '202609',
+    'X-Restli-Protocol-Version': '2.0.0',
+  };
+}
 
 function settings() {
   const { APP_URL, LINKEDIN_CLIENT_ID: clientId, LINKEDIN_CLIENT_SECRET: clientSecret } = process.env;
@@ -27,7 +43,7 @@ export function linkedInAuthorization(state: string) {
   const url = new URL('https://www.linkedin.com/oauth/v2/authorization');
   url.search = new URLSearchParams({
     response_type: 'code', client_id: config.clientId, redirect_uri: config.callback,
-    state, scope: scopes.join(' '),
+    state, scope: scopes().join(' '),
   }).toString();
   return url.href;
 }
@@ -104,23 +120,59 @@ export async function linkedInMember(access: string) {
   throw new LinkedInAuthorizationError('LinkedIn member identity was unavailable. Reconnect with the profile permission.');
 }
 
-export async function publishLinkedInMember(memberId: string, access: string, content: string): Promise<PublishResult | { kind: 'unauthorized' }> {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(memberId)) return { kind: 'failed', error: 'Reconnect the LinkedIn member profile.' };
+type LinkedInDestination = { externalId: string; name: string };
+
+export async function linkedInDestinations(access: string): Promise<LinkedInDestination[]> {
+  const member = await linkedInMember(access);
+  const destinations: LinkedInDestination[] = [{ externalId: `person:${member.externalId}`, name: member.name }];
+  if (!organizationEnabled()) return destinations;
   try {
-    const response = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+    const url = new URL('https://api.linkedin.com/rest/organizationAcls');
+    url.search = new URLSearchParams({ q: 'roleAssignee', role: 'ADMINISTRATOR', state: 'APPROVED', count: '100' }).toString();
+    const response = await fetch(url, { headers: marketingHeaders(access), redirect: 'error', signal: AbortSignal.timeout(8000) });
+    if (!response.ok) return destinations;
+    const value = await response.json() as { elements?: Array<{ organization?: string }> };
+    const ids = [...new Set((value.elements ?? []).map((item) =>
+      /^urn:li:organization:(\d+)$/.exec(item.organization ?? '')?.[1]).filter((id): id is string => Boolean(id)))];
+    for (const id of ids) {
+      let name = `LinkedIn Page ${id}`;
+      const organization = await fetch(`https://api.linkedin.com/rest/organizations/${id}`, {
+        headers: marketingHeaders(access), redirect: 'error', signal: AbortSignal.timeout(8000),
+      });
+      if (organization.ok) {
+        const details = await organization.json() as { localizedName?: string };
+        if (typeof details.localizedName === 'string' && details.localizedName.trim()) name = details.localizedName.trim().slice(0, 200);
+      }
+      destinations.push({ externalId: `organization:${id}`, name });
+    }
+  } catch {
+    // A member profile remains usable when organization discovery is unavailable or not approved.
+  }
+  return destinations;
+}
+
+export async function publishLinkedInDestination(destinationId: string, access: string, content: string): Promise<PublishResult | { kind: 'unauthorized' }> {
+  const match = /^(person|organization):([A-Za-z0-9_-]{1,128})$/.exec(destinationId);
+  const legacyMember = /^[A-Za-z0-9_-]{1,128}$/.test(destinationId) ? destinationId : null;
+  if (!match && !legacyMember) return { kind: 'failed', error: 'Reconnect the LinkedIn destination.' };
+  const author = legacyMember ? `urn:li:person:${legacyMember}` : `urn:li:${match![1]}:${match![2]}`;
+  try {
+    const response = await fetch('https://api.linkedin.com/rest/posts', {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(12_000),
-      headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' },
+      headers: { ...marketingHeaders(access), 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        author: `urn:li:person:${memberId}`,
+        author,
+        commentary: content,
         lifecycleState: 'PUBLISHED',
-        specificContent: { 'com.linkedin.ugc.ShareContent': { shareCommentary: { text: content }, shareMediaCategory: 'NONE' } },
-        visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
+        visibility: 'PUBLIC',
+        distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] },
+        isReshareDisabledByAuthor: false,
       }),
     });
     if (response.status === 401) return { kind: 'unauthorized' };
     if (response.status === 429) return retryAfter(Number(response.headers.get('Retry-After')));
     if (response.status >= 500) return { kind: 'uncertain', error: 'Check LinkedIn before sending the post again.' };
-    if (!response.ok) return { kind: 'failed', error: 'LinkedIn rejected the post. Check publishing permissions and reconnect if needed.' };
+    if (!response.ok) return { kind: 'failed', error: 'LinkedIn rejected the post. Check Page role and publishing permissions, then reconnect.' };
     const id = response.headers.get('x-restli-id');
     if (response.status !== 201 || !id || !/^urn:li:(?:share|ugcPost):\d+$/.test(id)) {
       return { kind: 'uncertain', error: 'LinkedIn did not return a post ID. Check the profile before sending again.' };

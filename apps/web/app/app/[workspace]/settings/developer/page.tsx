@@ -28,7 +28,7 @@ export default async function DeveloperSettings({ params }: { params: Promise<{ 
           return (
             <section key={item.id}>
               <h2>{item.name}</h2>
-              <p role="status">{configured ? 'Configured' : 'Configuration required'}</p>
+              <p role="status">{configured ? 'Configured for per-user OAuth' : 'Configuration required'}</p>
               <dl>
                 <dt>Callback URL</dt><dd><code>{callback}</code></dd>
                 <dt>Required environment variables</dt><dd><code>{item.env.join(', ')}</code></dd>
@@ -41,9 +41,14 @@ export default async function DeveloperSettings({ params }: { params: Promise<{ 
         <h2>Provider requirements</h2>
         <ul>
           <li>YouTube: enable YouTube Data API v3 and request upload plus channel-read scopes. Public apps may require Google verification.</li>
-          <li>LinkedIn: enable OpenID Connect and Share on LinkedIn with <code>w_member_social</code>.</li>
+          <li>LinkedIn profiles: enable OpenID Connect and Share on LinkedIn with <code>w_member_social</code>.</li>
+          <li>LinkedIn Pages: request Community Management API access, enable <code>r_organization_admin</code> and <code>w_organization_social</code>, then set <code>LINKEDIN_ORGANIZATION_ENABLED=true</code>. Each user sees only Pages their LinkedIn account administers.</li>
           <li>X: enable OAuth 2.0 Authorization Code with PKCE, offline access, and read/write app permissions.</li>
         </ul>
+      </section>
+      <section>
+        <h2>Scheduling and content calendar</h2>
+        <p>Connected destinations use the same durable scheduler. Approve a post, choose an exact UTC time, publish immediately, or use the next workspace posting slot. Scheduled content appears in the workspace Agenda in the configured workspace time zone.</p>
       </section>
     </>
   );

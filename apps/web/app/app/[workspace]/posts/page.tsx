@@ -75,7 +75,7 @@ export default async function Posts({ params, searchParams }: {
         const editable = canWrite && ['DRAFT', 'IN_REVIEW', 'APPROVED'].includes(post.state);
         return (
           <li key={post.id}>
-            <article>
+            <article id={`post-${post.id}`}>
               <h2>{post.state.replaceAll('_', ' ').toLowerCase()} · Revision {post.revision}</h2>
               {post.scheduledAt && <p><time dateTime={post.scheduledAt.toISOString()}>{post.scheduledAt.toISOString()}</time></p>}
               {editable ? (
