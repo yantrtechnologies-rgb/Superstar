@@ -31,7 +31,12 @@ export function rssConfigured() {
   return Boolean(process.env.RSS_ALLOWED_FEEDS?.trim());
 }
 
-export async function addRssRule(userId: string, slug: string, name: string, value: string, publishTargets: string[] = []) {
+/** autoSchedule: once a reviewer approves an AI post, put it in the channels' next free posting slot. */
+export type RssAiSettings = { topic: string; instructions?: string; image?: boolean; autoSchedule?: boolean };
+
+export async function addRssRule(
+  userId: string, slug: string, name: string, value: string, publishTargets: string[] = [], ai?: RssAiSettings,
+) {
   const url = allowedFeedUrl(value);
   return prisma.$transaction(async (tx) => {
     const membership = await tx.membership.findFirst({ where: { userId, workspace: { slug } } });
@@ -42,8 +47,11 @@ export async function addRssRule(userId: string, slug: string, name: string, val
       where: { workspaceId, id: { in: channelIds } },
     }) !== channelIds.length)) throw new WorkspaceAccessError('Choose destinations in this workspace.');
     const details = {
-      name, channelIds, publishAfterApproval: channelIds.length > 0,
+      name, channelIds, publishAfterApproval: channelIds.length > 0 && (!ai?.topic || Boolean(ai.autoSchedule)),
       authorizedById: channelIds.length ? userId : null,
+      aiTopic: ai?.topic.trim().slice(0, 300) || null,
+      aiInstructions: ai?.instructions?.trim().slice(0, 1500) || null,
+      aiImage: Boolean(ai?.topic && ai.image),
     };
     await tx.rssRule.upsert({
       where: { workspaceId_sourceUrl: { workspaceId, sourceUrl: url.href } },
@@ -87,9 +95,9 @@ export function listRssRules(userId: string, slug: string) {
         select: { id: true, state: true, imported: true, error: true, createdAt: true },
       },
       imports: {
-        where: { scheduleState: { not: 'OFF' }, postId: { not: null } },
-        orderBy: { importedAt: 'desc' }, take: 5,
-        select: { sourceKey: true, scheduleState: true, scheduleError: true,
+        where: { OR: [{ scheduleState: { not: 'OFF' }, postId: { not: null } }, { aiState: { not: null } }] },
+        orderBy: { importedAt: 'desc' }, take: 8,
+        select: { sourceKey: true, scheduleState: true, scheduleError: true, aiState: true, aiNote: true, title: true, postId: true,
           post: { select: { state: true, scheduledAt: true } } },
       },
     },

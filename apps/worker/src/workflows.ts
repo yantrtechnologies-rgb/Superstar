@@ -3,6 +3,7 @@ import type * as activities from './publish';
 import type * as analytics from './analytics';
 import type * as ai from './ai';
 import type * as rss from './rss';
+import type * as rssAi from './rss-ai';
 
 // 3 minutes: an Instagram carousel uploads and waits on up to 10 photos. Stays below the 5-minute stale-publish check.
 const { publishDestination } = proxyActivities<typeof activities>({
@@ -42,8 +43,12 @@ export async function generateAiVideo(jobId: string) {
   await runAiVideoJob(jobId);
 }
 
+// The AI writer handles a few items per check (text plus an optional image each); retries never double-charge.
+const { writeRssAiPosts } = proxyActivities<typeof rssAi>({ startToCloseTimeout: '10 minutes', retry: { maximumAttempts: 2 } });
+
 export async function importRssFeed(runId: string) {
   await importRssRun(runId);
+  await writeRssAiPosts(runId);
 }
 
 const { deliverWebhook } = proxyActivities<{ deliverWebhook(id: string): Promise<number | null> }>({

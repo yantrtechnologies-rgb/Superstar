@@ -198,6 +198,8 @@ model Post {
   createdAt   DateTime  @default(now()) @map("created_at")
   scheduledAt DateTime? @map("scheduled_at")
   createRequestKey String? @map("create_request_key")
+  /// AI suggestions for the reviewer (why it matters, posting tips, other angles). Shown on the Posts page.
+  aiNote      String?   @map("ai_note")
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   reviewLinks ReviewLink[]
   editorialComments EditorialComment[]
@@ -525,6 +527,12 @@ model RssRule {
   publishAfterApproval Boolean @default(false) @map("publish_after_approval")
   channelIds String[] @default([]) @db.Uuid @map("channel_ids")
   authorizedById String? @db.Uuid @map("authorized_by_id")
+  /// When set, each new item goes through AI: kept only if it fits this topic, then rewritten as a post.
+  aiTopic     String?   @map("ai_topic")
+  /// Brand, audience and tone guidance for the AI writer.
+  aiInstructions String? @map("ai_instructions")
+  /// Also generate a matching image for each AI post.
+  aiImage     Boolean   @default(false) @map("ai_image")
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   runs        RssRun[]
   imports     FeedImport[]
@@ -565,6 +573,12 @@ model FeedImport {
   scheduleError String? @map("schedule_error")
   nextScheduleAt DateTime @default(now()) @map("next_schedule_at")
   importedAt DateTime @default(now()) @map("imported_at")
+  /// AI rules only: PENDING, DONE, SKIPPED (not on topic or older item) or FAILED.
+  aiState     String?  @map("ai_state")
+  aiNote      String?  @map("ai_note")
+  title       String?
+  /// The item text, kept until the AI writer has used it.
+  sourceText  String?  @map("source_text")
   rule        RssRule  @relation(fields: [ruleId], references: [id], onDelete: Cascade)
   post        Post?    @relation(fields: [postId], references: [id], onDelete: SetNull)
 

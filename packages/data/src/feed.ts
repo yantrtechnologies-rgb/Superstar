@@ -4,7 +4,8 @@ import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { pinPublicIpv4, publicOutboundIpv4 } from './outbound';
 import { allowedFeedUrl, RssConfigurationError } from './rss';
 
-const feedLimit = 512 * 1024;
+// Big publishers' feeds (full article text) often run past 1 MiB.
+const feedLimit = 3 * 1024 * 1024;
 
 export const publicFeedAddress = publicOutboundIpv4;
 
@@ -15,12 +16,18 @@ export async function fetchFeed(source: string) {
   return new Promise<string>((resolve, reject) => {
     const req = request(url, {
       family: 4, signal, agent: false,
-      headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml', 'Accept-Encoding': 'identity' },
+      headers: {
+        Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml', 'Accept-Encoding': 'identity',
+        // Many sites refuse requests that do not say who is asking.
+        'User-Agent': 'Mozilla/5.0 (compatible; SuperstarFeedReader/1.0; +https://superstar.xolnet.in)',
+      },
       lookup: (_hostname, _options, callback) => callback(null, address, 4),
     }, (res) => {
       if (res.statusCode !== 200 || (res.headers['content-encoding'] && res.headers['content-encoding'] !== 'identity')) {
         res.destroy();
-        reject(new RssConfigurationError('The feed returned an unsupported response.'));
+        reject(new RssConfigurationError(res.statusCode && res.statusCode >= 300 && res.statusCode < 400
+          ? `The feed moved to ${String(res.headers.location ?? 'another address')}. Use that address instead.`
+          : `The feed site answered with status ${res.statusCode ?? 'unknown'} instead of the feed.`));
         return;
       }
       const chunks: Buffer[] = [];
@@ -28,7 +35,7 @@ export async function fetchFeed(source: string) {
       res.on('data', (chunk: Buffer) => {
         received += chunk.length;
         if (received > feedLimit) {
-          res.destroy(new RssConfigurationError('The feed exceeds 512 KiB.'));
+          res.destroy(new RssConfigurationError('The feed is larger than 3 MiB.'));
           return;
         }
         chunks.push(chunk);

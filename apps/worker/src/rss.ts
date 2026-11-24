@@ -1,5 +1,6 @@
 import { fetchFeed, parseFeed, prisma, ProviderConfigurationError, RssConfigurationError, validateProviderPost } from '@cadencedesk/data';
 import { Client, WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
+import { aiItemsPerCheck } from './rss-ai';
 
 export async function importRssRun(id: string) {
   const run = await prisma.rssRun.findUnique({ where: { id }, include: { rule: true } });
@@ -30,6 +31,23 @@ export async function recordFeedItems(id: string, entries: { sourceKey: string; 
       data: { state: run.rule.enabled ? 'COMPLETED' : 'SKIPPED' },
     });
     if (!updated.count || !run.rule.enabled) return 0;
+    if (run.rule.aiTopic) {
+      // AI rules: queue the newest items for the AI writer (rss-ai.ts); it creates the posts.
+      let queued = 0;
+      for (const { sourceKey, content } of entries) {
+        const pending = queued < aiItemsPerCheck();
+        const created = await tx.feedImport.createMany({
+          data: [{
+            ruleId: run.ruleId, sourceKey, title: content.split('\n')[0]?.slice(0, 300) || null,
+            aiState: pending ? 'PENDING' : 'SKIPPED', sourceText: pending ? content : null,
+            aiNote: pending ? null : `Older item: only the newest ${aiItemsPerCheck()} new items per check go through AI.`,
+          }], skipDuplicates: true,
+        });
+        if (created.count && pending) queued++;
+      }
+      await tx.rssRun.update({ where: { id }, data: { imported: queued } });
+      return queued;
+    }
     const { workspaceId, channelIds, publishAfterApproval } = run.rule;
     const channels = publishAfterApproval ? await tx.channel.findMany({
       where: { workspaceId, id: { in: channelIds } }, select: { provider: true },

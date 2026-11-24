@@ -67,6 +67,16 @@ export async function geminiText(model: string, prompt: string) {
   return { text: text.slice(0, 12_000), providerRef };
 }
 
+/** Text with a caller-supplied system instruction (used by the RSS AI writer). */
+export async function geminiWrite(model: string, system: string, prompt: string, maxTokens = 2000) {
+  const { data, providerRef } = await interact({
+    model, system_instruction: system, input: prompt, generation_config: { max_output_tokens: maxTokens },
+  }, 90_000);
+  const text = (data.output_text ?? outputs(data, 'text').map((item) => item.text ?? '').join('\n')).trim();
+  if (!text) throw new AiProviderError('The AI provider returned no text.', providerRef);
+  return { text, providerRef };
+}
+
 export async function geminiImage(model: string, prompt: string) {
   const { data, providerRef } = await interact({
     model, input: prompt,

@@ -25,7 +25,15 @@ export async function addFeedAction(form: FormData) {
     actor, workspace,
     z.string().trim().min(1).max(80).parse(form.get('name')),
     z.string().trim().max(2048).parse(form.get('url')),
-    form.get('publishAfterApproval') === 'yes' ? z.array(z.uuid()).min(1).max(20).parse(form.getAll('channel')) : [],
+    form.get('publishAfterApproval') === 'yes' || form.get('aiTopic')
+      ? z.array(z.uuid()).max(20).parse(form.getAll('channel')) : [],
+    z.string().trim().max(300).parse(form.get('aiTopic') ?? '')
+      ? {
+        topic: z.string().trim().max(300).parse(form.get('aiTopic')),
+        instructions: z.string().trim().max(1500).parse(form.get('aiInstructions') ?? ''),
+        image: form.get('aiImage') === 'yes',
+        autoSchedule: form.get('publishAfterApproval') === 'yes',
+      } : undefined,
   ));
 }
 

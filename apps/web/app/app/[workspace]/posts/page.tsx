@@ -99,6 +99,12 @@ export default async function Posts({ params, searchParams }: {
               </h2>
               {post.scheduledAt && <p><time dateTime={post.scheduledAt.toISOString()}>{format.format(post.scheduledAt)}</time></p>}
               <p className="post-content">{latest?.content}</p>
+              {post.aiNote && (
+                <details className="ai-note" open={post.state === 'IN_REVIEW' || post.state === 'DRAFT'}>
+                  <summary>✨ AI suggestions</summary>
+                  <p style={{ whiteSpace: 'pre-line' }}>{post.aiNote}</p>
+                </details>
+              )}
               {Object.keys(overrides).length > 0 && (
                 <details>
                   <summary>Custom text for {Object.keys(overrides).length} channel{Object.keys(overrides).length > 1 ? 's' : ''}</summary>

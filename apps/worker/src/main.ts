@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { collectChannelMetric, dispatchAnalytics } from './analytics';
 import { dispatchAiJobs, reconcileAiJobs, runAiJob } from './ai';
 import { dispatchRssRuns, importRssRun, queueDueRssRules } from './rss';
+import { writeRssAiPosts } from './rss-ai';
 import { deliverWebhook, dispatchWebhooks } from './webhooks';
 import { setTimeout } from 'node:timers/promises';
 import { dispatchOutbox, publishDestination, reconcileInterrupted } from './publish';
@@ -45,7 +46,7 @@ async function main() {
         namespace,
         taskQueue: 'cadencedesk',
         workflowsPath: require.resolve('./workflows'),
-        activities: { publishDestination, collectChannelMetric, runAiJob, importRssRun, deliverWebhook },
+        activities: { publishDestination, collectChannelMetric, runAiJob, importRssRun, writeRssAiPosts, deliverWebhook },
       });
       const server = createServer((_request, response) => {
         const running = worker.getState() === 'RUNNING';
