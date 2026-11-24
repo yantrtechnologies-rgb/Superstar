@@ -204,6 +204,7 @@ model Post {
   reviewLinks ReviewLink[]
   editorialComments EditorialComment[]
   feedImports FeedImport[]
+  aiJobs      AiJob[]
   revisions   PostRevision[]
   destinations Destination[]
   tags        PostTag[]
@@ -502,11 +503,15 @@ model AiJob {
   asset       Asset?      @relation("StudioOutput", fields: [assetId], references: [id], onDelete: SetNull)
 
   sourceAsset Asset? @relation("StudioSource", fields: [sourceAssetId], references: [id], onDelete: SetNull)
+  /// When set, the generated image or video is attached to this post (if it is still a draft or awaiting approval).
+  postId      String?     @db.Uuid @map("post_id")
+  post        Post?       @relation(fields: [postId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, requestId])
   @@index([workspaceId, createdAt])
   @@index([dispatchedAt, createdAt])
   @@index([state, startedAt])
+  @@index([postId])
   @@map("ai_jobs")
 }
 
@@ -576,6 +581,8 @@ model FeedImport {
   /// AI rules only: PENDING, DONE, SKIPPED (not on topic or older item) or FAILED.
   aiState     String?  @map("ai_state")
   aiNote      String?  @map("ai_note")
+  /// When an AI run claimed this item; only one run works on an item at a time (stale claims expire after 10 min).
+  aiClaimedAt DateTime? @map("ai_claimed_at")
   title       String?
   /// The item text, kept until the AI writer has used it.
   sourceText  String?  @map("source_text")

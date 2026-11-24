@@ -6,7 +6,10 @@ import { notFound } from 'next/navigation';
 import { getMembership, requireUser } from '../../../../lib/require-user';
 import { ReviewLinkForm } from './review-link-form';
 import { revokeReviewLinkAction } from '../review-actions';
-import { approvePostAction, cancelPostAction, schedulePostAction } from '../publishing-actions';
+import { cancelPostAction, schedulePostAction } from '../publishing-actions';
+import { MediaThumb, mediaTypes, PostMediaButtons, postMediaMessages } from '../post-media';
+import { ApprovePanel, ChannelPicker } from '../post-approve';
+import { postMediaJobs } from '@cadencedesk/data';
 import { cancelDestinationAction, duplicateAction } from './composer-actions';
 
 const messages: Record<string, string> = {
@@ -22,7 +25,7 @@ const messages: Record<string, string> = {
 };
 
 const filters = [
-  ['', 'All'], ['DRAFT', 'Drafts'], ['IN_REVIEW', 'In review'], ['APPROVED', 'Approved'], ['SCHEDULED', 'Scheduled'],
+  ['', 'All'], ['DRAFT', 'Drafts'], ['IN_REVIEW', 'Awaiting approval'], ['APPROVED', 'Approved'], ['SCHEDULED', 'Scheduled'],
   ['PUBLISHED', 'Published'], ['FAILED', 'Failed'], ['CANCELED', 'Canceled'],
 ] as const;
 
@@ -51,13 +54,14 @@ function Hidden({ workspace, id, revision }: { workspace: string; id?: string; r
 
 export default async function Posts({ params, searchParams }: {
   params: Promise<{ workspace: string }>;
-  searchParams: Promise<{ status?: string; state?: string }>;
+  searchParams: Promise<{ status?: string; state?: string; reason?: string }>;
 }) {
   const user = await requireUser();
-  const [{ workspace }, { status, state }] = await Promise.all([params, searchParams]);
+  const [{ workspace }, { status, state, reason }] = await Promise.all([params, searchParams]);
   const membership = await getMembership(user.id, workspace);
   if (!membership) notFound();
-  const [allPosts, channels] = await Promise.all([listPosts(user.id, workspace), listChannels(user.id, workspace)]);
+  const [allPosts, channels, mediaJobs] = await Promise.all([listPosts(user.id, workspace), listChannels(user.id, workspace), postMediaJobs(user.id, workspace)]);
+  const types = await mediaTypes(allPosts.flatMap((post) => post.revisions[0] ? revisionMediaIds(post.revisions[0]) : []));
   const posts = state ? allPosts.filter((post) => viewState(post) === state) : allPosts;
   const canWrite = canWritePosts(membership.role);
   const canApprove = canApprovePosts(membership.role);
@@ -73,7 +77,7 @@ export default async function Posts({ params, searchParams }: {
         </div>
         {canWrite && <Link className="btn btn-primary" href={`${base}/posts/new`}>+ Create post</Link>}
       </header>
-      {status && Object.hasOwn(messages, status) && <p role="status">{messages[status]}</p>}
+      {status && (Object.hasOwn(messages, status) || Object.hasOwn(postMediaMessages, status)) && <p role="status">{messages[status] ?? postMediaMessages[status]}{reason && status !== 'saved' ? ` ${reason}` : ''}</p>}
       <nav className="segmented" aria-label="Filter posts">
         {filters.map(([value, label]) => (
           <Link key={label} href={value ? `?state=${value}` : '?'} aria-current={(state ?? '') === value ? 'page' : undefined}>
@@ -93,7 +97,7 @@ export default async function Posts({ params, searchParams }: {
           <li key={post.id}>
             <article id={`post-${post.id}`}>
               <h2 className="post-head">
-                <span className={'badge ' + (({ SCHEDULED: 'badge-ok', PUBLISHED: 'badge-ok', APPROVED: 'badge-ok', IN_REVIEW: 'badge-warn', FAILED: 'badge-bad', CANCELED: 'badge-bad' } as Record<string, string>)[viewState(post)] ?? 'badge-muted')}>{viewState(post).replaceAll('_', ' ').toLowerCase()}</span><span className="sr-only"> · </span><small>Revision {post.revision}</small>
+                <span className={'badge ' + (({ SCHEDULED: 'badge-ok', PUBLISHED: 'badge-ok', APPROVED: 'badge-ok', IN_REVIEW: 'badge-warn', FAILED: 'badge-bad', CANCELED: 'badge-bad' } as Record<string, string>)[viewState(post)] ?? 'badge-muted')}>{viewState(post) === 'IN_REVIEW' ? 'awaiting approval' : viewState(post).replaceAll('_', ' ').toLowerCase()}</span><span className="sr-only"> · </span><small>Revision {post.revision}</small>
                 {post.repeatEveryDays && <small>· repeats every {post.repeatEveryDays} day{post.repeatEveryDays > 1 ? 's' : ''}</small>}
                 {post.tags.map(({ tag }) => <span key={tag.id} className="chip static" style={{ ['--tag' as string]: tag.color }}>{tag.name}</span>)}
               </h2>
@@ -117,9 +121,10 @@ export default async function Posts({ params, searchParams }: {
               )}
               {mediaIds.length > 0 && (
                 <div className="media-strip small">
-                  {mediaIds.slice(0, 6).map((id) => <img key={id} src={`${base}/media/${id}`} alt="" loading="lazy" />)}
+                  {mediaIds.slice(0, 6).map((id) => <MediaThumb key={id} src={`${base}/media/${id}`} type={types.get(id)} />)}
                 </div>
               )}
+              {canWrite && <PostMediaButtons workspace={workspace} postId={post.id} state={post.state} jobs={mediaJobs.get(post.id) ?? []} back="posts" />}
               {thread.length > 0 && (
                 <details>
                   <summary>Thread · {thread.length} item{thread.length > 1 ? 's' : ''}</summary>
@@ -137,14 +142,15 @@ export default async function Posts({ params, searchParams }: {
                 {canWrite && (
                   <form action={duplicateAction}><Hidden workspace={workspace} id={post.id} /><button type="submit" className="btn">Duplicate</button></form>
                 )}
-                {canApprove && post.state === 'IN_REVIEW' && (
-                  <form action={approvePostAction}><Hidden {...fields} /><button type="submit" className="btn btn-primary">Approve revision</button></form>
-                )}
                 {canWrite && roots.some(({ state: s }) => s === 'SCHEDULED') && (
                   <form action={cancelPostAction}><Hidden {...fields} /><button type="submit" className="btn">Cancel all pending</button></form>
                 )}
               </div>
 
+              {canApprove && post.state === 'IN_REVIEW' && (
+                <ApprovePanel workspace={workspace} postId={post.id} revision={post.revision} channels={channels}
+                  checked={latest?.channelIds ?? []} back="posts" earliest={earliestSchedule} />
+              )}
               {canWrite && post.state === 'IN_REVIEW' && (
                 <ReviewLinkForm key={post.revision} workspace={workspace} postId={post.id} revision={post.revision} />
               )}
@@ -176,8 +182,11 @@ export default async function Posts({ params, searchParams }: {
               {canWrite && post.state === 'APPROVED' && (channels.length ? (
                 <form action={schedulePostAction} className="identity-form schedule-panel">
                   <Hidden {...fields} />
-                  {latest?.channelIds.map((id) => <input key={id} type="hidden" name="channel" value={id} />)}
                   <h3>Schedule</h3>
+                  {/* A post approved for certain channels can go to any of them; one approved without channels can go anywhere. */}
+                  <ChannelPicker idPrefix={`schedule-${post.id}`}
+                    channels={latest?.channelIds.length ? channels.filter(({ id }) => latest.channelIds.includes(id)) : channels}
+                    checked={latest?.channelIds ?? []} />
                   <p>Times are entered in UTC and displayed in {membership.workspace.timeZone} on the calendar.</p>
                   <label htmlFor={`due-${post.id}`}>Schedule date and time (UTC)</label>
                   <input type="datetime-local" id={`due-${post.id}`} name="dueAt" min={earliestSchedule} />

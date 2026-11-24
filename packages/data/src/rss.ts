@@ -31,6 +31,34 @@ export function rssConfigured() {
   return Boolean(process.env.RSS_ALLOWED_FEEDS?.trim());
 }
 
+/**
+ * Ready-made feeds offered as checkboxes. Google News and Bing News search for the user's topic, so their address
+ * is built from it; the others are well-known marketing publications.
+ */
+export const feedPresets = [
+  {
+    id: 'google-news', name: 'Google News', note: 'Latest news stories about your topic, from thousands of sites (India edition).',
+    url: (topic: string) => `https://news.google.com/rss/search?q=${encodeURIComponent(topic)}&hl=en-IN&gl=IN&ceid=IN:en`,
+  },
+  {
+    id: 'bing-news', name: 'Bing News', note: 'News articles about your topic from Microsoft Bing.',
+    url: (topic: string) => `https://www.bing.com/news/search?q=${encodeURIComponent(topic)}&format=rss`,
+  },
+  {
+    id: 'hubspot', name: 'HubSpot Marketing Blog', note: 'Marketing, social media, SEO and AI how-tos.',
+    url: () => 'https://blog.hubspot.com/marketing/rss.xml',
+  },
+  {
+    id: 'sej', name: 'Search Engine Journal', note: 'SEO, Google updates, paid search and AI search news.',
+    url: () => 'https://www.searchenginejournal.com/feed/',
+  },
+  {
+    id: 'sme', name: 'Social Media Examiner', note: 'Facebook, Instagram, LinkedIn, YouTube and short-video tips.',
+    url: () => 'https://www.socialmediaexaminer.com/feed/',
+  },
+] as const;
+export type FeedPresetId = (typeof feedPresets)[number]['id'];
+
 /** autoSchedule: once a reviewer approves an AI post, put it in the channels' next free posting slot. */
 export type RssAiSettings = { topic: string; instructions?: string; image?: boolean; autoSchedule?: boolean };
 
@@ -145,4 +173,62 @@ export async function scheduleReviewedRssImports() {
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
+}
+
+/** The AI writer's queue, grouped the way the Automations tabs show it. */
+export const aiQueueTabs = [
+  { id: 'queued', label: 'Queued' },
+  { id: 'writing', label: 'Writing' },
+  { id: 'awaiting', label: 'Awaiting approval' },
+  { id: 'approved', label: 'Approved & posted' },
+  { id: 'skipped', label: 'Skipped' },
+  { id: 'failed', label: 'Failed' },
+] as const;
+export type AiQueueTab = (typeof aiQueueTabs)[number]['id'];
+
+export async function aiQueue(userId: string, slug: string) {
+  const items = await prisma.feedImport.findMany({
+    where: { aiState: { not: null }, rule: { workspace: { slug, memberships: { some: { userId } } } } },
+    orderBy: { importedAt: 'desc' }, take: 400,
+    select: {
+      sourceKey: true, ruleId: true, aiState: true, aiNote: true, title: true, importedAt: true,
+      rule: { select: { name: true } },
+      post: {
+        select: {
+          id: true, state: true, revision: true, scheduledAt: true, aiNote: true,
+          revisions: { orderBy: { number: 'desc' }, take: 1, select: { content: true, mediaIds: true, channelIds: true } },
+          destinations: { where: { parentId: null }, select: { state: true, permalink: true } },
+        },
+      },
+    },
+  });
+  // Items past the per-check limit are skipped without any AI work; they are only counted, not listed.
+  let olderSkipped = 0;
+  const tabs: Record<AiQueueTab, typeof items> = { queued: [], writing: [], awaiting: [], approved: [], skipped: [], failed: [] };
+  for (const item of items) {
+    if (item.aiState === 'PENDING') tabs.queued.push(item);
+    else if (item.aiState === 'WRITING') tabs.writing.push(item);
+    else if (item.aiState === 'FAILED') tabs.failed.push(item);
+    else if (item.aiState === 'SKIPPED') {
+      if (item.aiNote?.startsWith('Older item')) olderSkipped++;
+      else tabs.skipped.push(item);
+    } else if (item.post && ['DRAFT', 'IN_REVIEW'].includes(item.post.state)) tabs.awaiting.push(item);
+    else if (item.post && item.post.state !== 'CANCELED') tabs.approved.push(item);
+  }
+  return { tabs, olderSkipped };
+}
+
+/** Stops (or restarts) every RSS rule in the workspace: no feed checks and no AI credits are used while stopped. */
+export async function setAllRssEnabled(userId: string, slug: string, enabled: boolean) {
+  return prisma.$transaction(async (tx) => {
+    const membership = await tx.membership.findFirst({ where: { userId, workspace: { slug } } });
+    if (!membership || !canManageTeam(membership.role)) throw new WorkspaceAccessError('You cannot change RSS rules.');
+    const where = { workspaceId: membership.workspaceId };
+    if (!enabled) return (await tx.rssRule.updateMany({ where, data: { enabled: false } })).count;
+    const plain = await tx.rssRule.updateMany({ where: { ...where, publishAfterApproval: false }, data: { enabled: true, nextRunAt: new Date() } });
+    const scheduled = await tx.rssRule.updateMany({
+      where: { ...where, publishAfterApproval: true }, data: { enabled: true, nextRunAt: new Date(), authorizedById: userId },
+    });
+    return plain.count + scheduled.count;
+  });
 }

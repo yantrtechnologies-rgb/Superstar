@@ -3,7 +3,7 @@
 import {
   AssetStorageError, beginLinkedInConnection, beginXConnection, beginYouTubeConnection, cancelPost, connectChannel,
   disconnectLinkedIn, disconnectX, disconnectYouTube, ProviderConfigurationError, PostingSlotUnavailableError,
-  imageLimit, videoLimit, providerIds, providers, savePost, schedulePost,
+  approveForChannels, imageLimit, videoLimit, providerIds, providers, savePost, schedulePost,
   transitionPost, WorkspaceAccessError, PlanLimitError,
 } from '@cadencedesk/data';
 import { revalidatePath } from 'next/cache';
@@ -14,11 +14,12 @@ import { requireUser } from '../../../lib/require-user';
 const workspace = z.string().regex(/^[a-z0-9-]{1,64}$/);
 const post = z.object({ postId: z.uuid(), revision: z.coerce.number().int().positive() });
 
-async function run(form: FormData, page: 'posts' | 'channels', command: (actor: string, slug: string) => Promise<unknown>) {
+async function run(form: FormData, page: 'posts' | 'channels' | 'automations', command: (actor: string, slug: string) => Promise<unknown>) {
   const user = await requireUser();
   const scope = workspace.safeParse(form.get('workspace'));
   if (!scope.success) redirect('/app');
   let status = 'saved';
+  let reason = '';
   try {
     await command(user.id, scope.data);
   } catch (error) {
@@ -29,9 +30,13 @@ async function run(form: FormData, page: 'posts' | 'channels', command: (actor: 
     else if (error instanceof ProviderConfigurationError) status = 'provider';
     else if (error instanceof AssetStorageError) status = 'image';
     else throw error;
+    // The specific reason (for example "Instagram requires an image") is shown next to the general message.
+    if (error instanceof WorkspaceAccessError || error instanceof ProviderConfigurationError) reason = error.message.slice(0, 200);
   }
   revalidatePath(`/app/${scope.data}`, 'layout');
-  redirect(`/app/${scope.data}/${page}?status=${status}`);
+  const target = page === 'automations' ? 'automations?tab=awaiting&' : `${page}?`;
+  if (page === 'automations' && status === 'saved') status = 'approved';
+  redirect(`/app/${scope.data}/${target}status=${status}${reason ? `&reason=${encodeURIComponent(reason)}` : ''}`);
 }
 
 function postFields(form: FormData) {
@@ -82,9 +87,30 @@ export async function approvePostAction(form: FormData) {
   });
 }
 
+function whenFromForm(form: FormData): Date | 'next' | null {
+  const mode = form.get('mode');
+  if (mode === 'approve') return null;
+  if (mode === 'next') return 'next';
+  if (mode === 'now') return new Date();
+  const date = new Date(`${z.iso.datetime({ local: true, precision: -1 }).parse(form.get('dueAt'))}:00Z`);
+  if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) throw new WorkspaceAccessError('Choose a future UTC time.');
+  return date;
+}
+
+/** Approve a post awaiting approval for the ticked channels, then post now, schedule, or just approve. */
+export async function approveForChannelsAction(form: FormData) {
+  await run(form, form.get('back') === 'automations' ? 'automations' : 'posts', (actor, slug) => {
+    const { postId, revision } = postFields(form);
+    const channels = form.getAll('channel').map(String);
+    if (!channels.length) throw new WorkspaceAccessError('Tick at least one channel to post to.');
+    return approveForChannels(actor, slug, postId, revision, z.array(z.uuid()).max(20).parse(channels), whenFromForm(form));
+  });
+}
+
 export async function schedulePostAction(form: FormData) {
   await run(form, 'posts', (actor, slug) => {
     const { postId, revision } = postFields(form);
+    if (!form.getAll('channel').length) throw new WorkspaceAccessError('Tick at least one channel to post to.');
     const channels = z.array(z.uuid()).min(1).max(20).parse(form.getAll('channel'));
     if (form.get('mode') === 'next') return schedulePost(actor, slug, postId, revision, channels, 'next');
     const publishNow = form.get('mode') === 'now';

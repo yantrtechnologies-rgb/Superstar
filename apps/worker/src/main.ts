@@ -8,22 +8,39 @@ import { dispatchRssRuns, importRssRun, queueDueRssRules } from './rss';
 import { writeRssAiPosts } from './rss-ai';
 import { deliverWebhook, dispatchWebhooks } from './webhooks';
 import { setTimeout } from 'node:timers/promises';
-import { dispatchOutbox, publishDestination, reconcileInterrupted } from './publish';
+import { dispatchOutbox, publishDestination, reconcileInterrupted, recoverLostWorkflows } from './publish';
 
 async function dispatch(client: Client, stop: AbortSignal) {
+  // Each step has its own error handling, so one failing job (RSS, AI, analytics...) never stops publishing.
+  const steps: [string, () => Promise<unknown>][] = [
+    ['reconcile_interrupted', () => reconcileInterrupted()],
+    ['dispatch_outbox', () => dispatchOutbox(client)],
+    ['dispatch_analytics', () => dispatchAnalytics(client)],
+    ['reconcile_ai', () => reconcileAiJobs()],
+    ['dispatch_ai', () => dispatchAiJobs(client)],
+    ['queue_rss', () => queueDueRssRules()],
+    ['dispatch_rss', () => dispatchRssRuns(client)],
+    ['schedule_rss_reviewed', () => scheduleReviewedRssImports()],
+    ['dispatch_webhooks', () => dispatchWebhooks(client)],
+  ];
+  let lastRecovery = 0;
   while (!stop.aborted) {
-    try {
-      await reconcileInterrupted();
-      await dispatchOutbox(client);
-      await dispatchAnalytics(client);
-      await reconcileAiJobs();
-      await dispatchAiJobs(client);
-      await queueDueRssRules();
-      await dispatchRssRuns(client);
-      await scheduleReviewedRssImports();
-      await dispatchWebhooks(client);
-    } catch {
-      console.error(JSON.stringify({ event: 'publishing.outbox_poll_failed' }));
+    for (const [name, step] of steps) {
+      try {
+        await step();
+      } catch (error) {
+        console.error(JSON.stringify({ event: 'worker.step_failed', step: name, error: error instanceof Error ? error.message.slice(0, 300) : 'unknown' }));
+      }
+    }
+    // Every 10 minutes: re-schedule posts whose scheduler workflow was lost (for example after a scheduler restore).
+    if (Date.now() - lastRecovery > 10 * 60_000) {
+      lastRecovery = Date.now();
+      try {
+        const recovered = await recoverLostWorkflows(client);
+        if (recovered) console.error(JSON.stringify({ event: 'worker.recovered_lost_workflows', count: recovered }));
+      } catch (error) {
+        console.error(JSON.stringify({ event: 'worker.step_failed', step: 'recover_lost_workflows', error: error instanceof Error ? error.message.slice(0, 300) : 'unknown' }));
+      }
     }
     try {
       await setTimeout(2000, undefined, { signal: stop });
@@ -56,7 +73,7 @@ async function main() {
       const stop = new AbortController();
       const polling = dispatch(client, stop.signal);
       try {
-        server.listen(3002, '0.0.0.0');
+        server.listen(3002, '127.0.0.1'); // health check: this machine only
         await worker.run();
       } finally {
         server.close();

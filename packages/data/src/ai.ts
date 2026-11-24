@@ -82,6 +82,7 @@ type StudioJobInput = {
   sourceAssetId?: string;
   startSecond?: number;
   durationSeconds?: number;
+  postId?: string;
 };
 
 async function queueStudioJob(userId: string, slug: string, input: StudioJobInput, confirmedCredits: number) {
@@ -95,6 +96,9 @@ async function queueStudioJob(userId: string, slug: string, input: StudioJobInpu
     if (input.sourceAssetId && !await tx.asset.findFirst({
       where: { id: input.sourceAssetId, workspaceId, type: 'video/mp4' }, select: { id: true },
     })) throw new WorkspaceAccessError('The source video is unavailable.');
+    if (input.postId && !await tx.post.findFirst({
+      where: { id: input.postId, workspaceId, state: { in: ['DRAFT', 'IN_REVIEW'] } }, select: { id: true },
+    })) throw new WorkspaceAccessError('Media can be added only to drafts and posts awaiting approval.');
     if (quote.credits) await initializeAccount(tx, workspaceId);
     const created = await tx.aiJob.createMany({
       data: { workspaceId, ...input, ...quote }, skipDuplicates: true,
@@ -253,10 +257,79 @@ export async function finalizeAiJob(id: string, outcome: AiOutcome) {
     await tx.aiJob.update({
       where: { id }, data: { outputText: outcome.text ?? null, assetId: asset?.id ?? null },
     });
+    if (asset && job.postId) await attachToPost(tx, job.postId, job.workspaceId, asset.id, asset.type);
     if (job.credits) await tx.creditEntry.create({
       data: { workspaceId: job.workspaceId, kind: 'CAPTURE', delta: 0, reference: 'capture:' + id },
     });
   });
+}
+
+/**
+ * Puts a finished AI image or video on its post, only while the post is still a draft or awaiting approval (an
+ * approved revision never changes behind the reviewer's back). A video replaces the post's media (networks take a
+ * video on its own); an image is added after any existing images.
+ */
+async function attachToPost(tx: Prisma.TransactionClient, postId: string, workspaceId: string, assetId: string, type: string) {
+  const post = await tx.post.findFirst({ where: { id: postId, workspaceId, state: { in: ['DRAFT', 'IN_REVIEW'] } } });
+  if (!post) return;
+  const revision = await tx.postRevision.findUnique({ where: { postId_number: { postId, number: post.revision } } });
+  if (!revision) return;
+  const current = revision.mediaIds.length ? revision.mediaIds : revision.assetId ? [revision.assetId] : [];
+  const kinds = current.length ? await tx.asset.findMany({ where: { id: { in: current } }, select: { id: true, type: true } }) : [];
+  const images = current.filter((id) => kinds.find((asset) => asset.id === id)?.type.startsWith('image/'));
+  const mediaIds = type === 'video/mp4' ? [assetId] : [...images, assetId].slice(-10);
+  await tx.postRevision.update({ where: { postId_number: { postId, number: post.revision } }, data: { mediaIds, assetId: null } });
+}
+
+function hookAndScript(content: string) {
+  const lines = content.split('\n').map((line) => line.trim()).filter((line) => line && !/^https?:\/\//.test(line) && !/^#/.test(line));
+  // Hook = the post's opening sentence; script = everything after it (links and hashtag lines left out).
+  const text = lines.join(' ');
+  const end = text.search(/[.!?](\s|$)/);
+  const hook = (end > 0 ? text.slice(0, end + 1) : text).slice(0, 300);
+  const script = text.slice(hook.length).trim().slice(0, 900);
+  return { hook, script };
+}
+
+/** Queues an AI image or video built from a post's hook (first line) and script (the rest), attached when ready. */
+export async function queuePostMedia(userId: string, slug: string, postId: string, kind: 'IMAGE' | 'VIDEO', confirmedCredits: number) {
+  const post = await prisma.post.findFirst({
+    where: { id: postId, workspace: { slug, memberships: { some: { userId } } } },
+    include: { revisions: { orderBy: { number: 'desc' }, take: 1 } },
+  });
+  const content = post?.revisions[0]?.content.trim();
+  if (!post || !content) throw new WorkspaceAccessError('That post is unavailable.');
+  const { hook, script } = hookAndScript(content);
+  const prompt = kind === 'IMAGE'
+    ? [
+      'Create an eye-catching, professional square image for a social media post.',
+      `The post opens with this hook: "${hook}"`,
+      script ? `The post is about: ${script}` : '',
+      'Show the idea visually with people, objects or scenes. Modern, bright, clean style.',
+      'Do not put any words, letters, numbers or logos in the image.',
+    ].filter(Boolean).join('\n')
+    : [
+      'Create a short vertical social media video (about 8 seconds) for this post.',
+      `Opening shot: a striking visual that matches the hook "${hook}".`,
+      script ? `Then show, scene by scene, the key message: ${script.slice(0, 600)}` : '',
+      'Modern, upbeat, professional look with natural motion and light background music.',
+      'No on-screen text, captions or logos.',
+    ].filter(Boolean).join('\n');
+  return queueStudioJob(userId, slug, { kind, prompt: prompt.slice(0, 4000), requestId: randomUUID(), postId }, confirmedCredits);
+}
+
+/** AI images/videos being made for posts (and ones that failed in the last day), keyed by post. */
+export async function postMediaJobs(userId: string, slug: string) {
+  const jobs = await prisma.aiJob.findMany({
+    where: {
+      postId: { not: null }, workspace: { slug, memberships: { some: { userId } } },
+      OR: [{ state: { in: ['QUEUED', 'RUNNING'] } }, { state: 'FAILED', finishedAt: { gte: new Date(Date.now() - 86_400_000) } }],
+    },
+    orderBy: { createdAt: 'desc' }, select: { postId: true, kind: true, state: true, error: true },
+  });
+  const byPost = new Map<string, typeof jobs>();
+  for (const job of jobs) byPost.set(job.postId!, [...(byPost.get(job.postId!) ?? []), job]);
+  return byPost;
 }
 
 export async function studioHistory(userId: string, slug: string) {

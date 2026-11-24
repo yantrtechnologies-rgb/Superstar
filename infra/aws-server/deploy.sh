@@ -21,6 +21,49 @@ if ! systemctl is-active --quiet redis6 && ! systemctl is-active --quiet valkey;
   if dnf install -y -q redis6; then systemctl enable --now redis6; else dnf install -y -q valkey && systemctl enable --now valkey; fi
 fi
 
+# Nightly backups to S3 (kept 14 days by an S3 lifecycle rule):
+#  - the scheduler's database (Temporal dev server, SQLite)
+#  - a full export of the app database (pg_dump). RDS itself keeps only 1 day on the AWS free plan.
+# Restore the app database from a .dump file: pg_restore --clean --if-exists --no-owner -d "<database url>" <file>.
+# Restore: stop superstar-temporal, gunzip the chosen backup over /opt/superstar/data/temporal.db, start it again;
+# the worker's recovery check then re-queues any scheduled post whose workflow is missing.
+command -v sqlite3 >/dev/null || dnf install -y -q sqlite
+command -v pg_dump >/dev/null || dnf install -y -q postgresql18
+cat > /usr/local/bin/superstar-backup-scheduler <<SCRIPT
+#!/bin/bash
+set -euo pipefail
+umask 077
+TMP=\$(mktemp /tmp/temporal-backup-XXXXXX)
+trap 'rm -f "\$TMP" "\$TMP.gz" "\$TMP.dump"' EXIT
+sqlite3 /opt/superstar/data/temporal.db ".backup '\$TMP'"
+gzip -c "\$TMP" > "\$TMP.gz"
+aws s3 cp --region $REGION "\$TMP.gz" "s3://$BUCKET/backups/temporal/temporal-\$(date -u +%Y-%m-%d).db.gz" --only-show-errors
+echo "scheduler backup uploaded"
+# App database: Prisma-only options are dropped from the URL; TLS is required by RDS.
+DBURL=\$(grep '^DATABASE_URL=' $ENVFILE | cut -d= -f2- | sed 's/^"//; s/"\$//')
+pg_dump --format=custom --no-owner --dbname="\${DBURL%%\?*}?sslmode=require" --file="\$TMP.dump"
+aws s3 cp --region $REGION "\$TMP.dump" "s3://$BUCKET/backups/db/superstar-\$(date -u +%Y-%m-%d).dump" --only-show-errors
+rm -f "\$TMP.dump"
+echo "database backup uploaded"
+SCRIPT
+chmod 700 /usr/local/bin/superstar-backup-scheduler
+cat > /etc/systemd/system/superstar-backup-scheduler.service <<'UNIT'
+[Unit]
+Description=Back up the Superstar scheduler and app databases to S3
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/superstar-backup-scheduler
+UNIT
+cat > /etc/systemd/system/superstar-backup-scheduler.timer <<'UNIT'
+[Unit]
+Description=Nightly Superstar backups
+[Timer]
+OnCalendar=*-*-* 21:30:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+
 # Fresh copy of the code (keeps the previous build until the new one succeeds).
 aws s3 cp --region $REGION s3://$BUCKET/deploy/superstar-release.tgz /tmp/superstar-release.tgz --only-show-errors
 rm -rf $APP.next && mkdir -p $APP.next && tar -xzf /tmp/superstar-release.tgz -C $APP.next
@@ -112,6 +155,7 @@ UNIT
 
 systemctl daemon-reload
 systemctl enable --now superstar-temporal superstar-worker superstar-api superstar-web caddy
+systemctl enable --now superstar-backup-scheduler.timer
 systemctl restart superstar-worker superstar-api superstar-web
 systemctl reload caddy || systemctl restart caddy
 sleep 8

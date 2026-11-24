@@ -182,11 +182,22 @@ export async function scheduleApprovedPost(
     throw new WorkspaceAccessError('Select between 1 and 20 destinations and a valid date.');
   }
   const [channels, approval] = await Promise.all([
-    tx.channel.count({ where: { workspaceId, id: { in: channelIds } } }),
+    tx.channel.findMany({ where: { workspaceId, id: { in: channelIds } }, select: { id: true, provider: true } }),
     tx.approval.findFirst({ where: { postId, revision, version: { post: { workspaceId } } }, include: { version: true } }),
   ]);
-  if (channels !== channelIds.length || !approval || approval.version.channelIds.join() !== channelIds.join()) {
+  if (channels.length !== channelIds.length || !approval) {
     throw new WorkspaceAccessError('The approval or selected channels are unavailable.');
+  }
+  // Post to any of the approved channels. A post approved without channels (for example one written by the AI
+  // writer) takes the channels chosen now, after checking the post suits each network.
+  const approved = approval.version.channelIds;
+  if (approved.length) {
+    if (!channelIds.every((id) => approved.includes(id))) {
+      throw new WorkspaceAccessError('Choose from the channels this post was approved for.');
+    }
+  } else {
+    await checkPostFitsChannels(tx, approval.version, channels);
+    await tx.postRevision.update({ where: { postId_number: { postId, number: revision } }, data: { channelIds } });
   }
   const scheduledAt = requestedAt === 'next' ? await findNextPostingSlot(tx, workspaceId, channelIds) : requestedAt;
   const changed = await tx.post.updateMany({
@@ -200,6 +211,39 @@ export async function scheduleApprovedPost(
     });
   }
   await tx.auditEvent.create({ data: { workspaceId, actorId, subjectId: postId, action: 'post.scheduled' } });
+}
+
+/** Throws ProviderConfigurationError when the post (text and first media file) does not suit one of the networks. */
+async function checkPostFitsChannels(
+  tx: Prisma.TransactionClient, version: { content: string; mediaIds: string[]; assetId: string | null }, channels: { provider: string }[],
+) {
+  const first = version.mediaIds[0] ?? version.assetId;
+  const media = first ? await tx.asset.findUnique({ where: { id: first }, select: { type: true } }) : null;
+  for (const channel of channels) validateProviderPost(channel.provider, version.content, media?.type);
+}
+
+/**
+ * Approves a post awaiting approval for the chosen channels and, optionally, schedules it right away
+ * ('now', a date, or the channels' next free posting slot).
+ */
+export async function approveForChannels(
+  userId: string, slug: string, postId: string, revision: number, targets: string[], when: Date | 'next' | null,
+) {
+  const channelIds = [...new Set(targets)].sort();
+  if (channelIds.length < 1 || channelIds.length > 20) throw new WorkspaceAccessError('Choose at least one channel.');
+  await prisma.$transaction(async (tx) => {
+    const { workspaceId, role } = await requireScope(tx, userId, slug);
+    if (!canApprovePosts(role)) throw new WorkspaceAccessError('You cannot approve posts.');
+    const post = await tx.post.findFirst({ where: { id: postId, workspaceId, revision, state: 'IN_REVIEW' } });
+    if (!post) throw new WorkspaceAccessError('This post changed or is no longer awaiting approval.');
+    const channels = await tx.channel.findMany({ where: { workspaceId, id: { in: channelIds } }, select: { provider: true } });
+    if (channels.length !== channelIds.length) throw new WorkspaceAccessError('Choose available workspace channels.');
+    const version = await tx.postRevision.findUniqueOrThrow({ where: { postId_number: { postId, number: revision } } });
+    await checkPostFitsChannels(tx, version, channels);
+    await tx.postRevision.update({ where: { postId_number: { postId, number: revision } }, data: { channelIds } });
+  }, serializable);
+  await transitionPost(userId, slug, postId, revision, 'APPROVED');
+  if (when) await schedulePost(userId, slug, postId, revision, channelIds, when);
 }
 
 export async function schedulePost(

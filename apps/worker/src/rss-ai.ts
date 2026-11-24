@@ -74,7 +74,7 @@ async function refund(workspaceId: string, reference: string, credits: number) {
 function setItem(item: Item, data: { aiState: string; aiNote?: string | null; postId?: string; scheduleState?: 'WAITING_REVIEW' | 'OFF' }) {
   return prisma.feedImport.update({
     where: { ruleId_sourceKey: { ruleId: item.ruleId, sourceKey: item.sourceKey } },
-    data: { ...data, sourceText: data.aiState === 'PENDING' ? undefined : null },
+    data: { ...data, sourceText: data.aiState === 'PENDING' || data.aiState === 'WRITING' ? undefined : null },
   });
 }
 
@@ -82,7 +82,8 @@ export async function writeRssAiPosts(runId: string) {
   const run = await prisma.rssRun.findUnique({ where: { id: runId }, include: { rule: { include: { workspace: { select: { name: true } } } } } });
   if (!run?.rule.enabled || !run.rule.aiTopic) return;
   const items = await prisma.feedImport.findMany({
-    where: { ruleId: run.ruleId, aiState: 'PENDING' }, orderBy: { importedAt: 'desc' }, take: aiItemsPerCheck(),
+    // WRITING items are ones an interrupted attempt started; they are picked up again (credits are never charged twice).
+    where: { ruleId: run.ruleId, aiState: { in: ['PENDING', 'WRITING'] } }, orderBy: { importedAt: 'asc' }, take: aiItemsPerCheck(),
     select: { ruleId: true, sourceKey: true, sourceText: true, title: true },
   });
   for (const item of items) await writeOne(run.rule, run.rule.workspace.name, item);
@@ -98,11 +99,24 @@ async function writeOne(rule: Rule, brand: string, item: Item) {
   }
   const reference = `rss-ai:${rule.id}:${item.sourceKey}`;
   const cost = textQuote.credits + (imageQuote?.credits ?? 0);
+  // Claim the item so only one run ever works on it (a scheduled check and "Run now" can overlap). A claim older
+  // than 10 minutes belongs to a run that died and may be taken over. Shown as "Writing" on the Automations page.
+  const claimed = await prisma.feedImport.updateMany({
+    where: {
+      ruleId: item.ruleId, sourceKey: item.sourceKey,
+      OR: [
+        { aiState: 'PENDING' },
+        { aiState: 'WRITING', OR: [{ aiClaimedAt: null }, { aiClaimedAt: { lt: new Date(Date.now() - 10 * 60_000) } }] },
+      ],
+    },
+    data: { aiState: 'WRITING', aiClaimedAt: new Date(), aiNote: null },
+  });
+  if (!claimed.count) return;
   if (!await reserve(rule.workspaceId, reference, cost)) {
-    // Left pending: the next check (or Run now) retries once credits are added.
+    // Back to pending: the next check (or Run now) retries once credits are added.
     return prisma.feedImport.update({
       where: { ruleId_sourceKey: { ruleId: item.ruleId, sourceKey: item.sourceKey } },
-      data: { aiNote: `Waiting for AI credits (${cost} needed). Buy credits on the Billing page.` },
+      data: { aiState: 'PENDING', aiClaimedAt: null, aiNote: `Waiting for AI credits (${cost} needed). Buy credits on the Billing page.` },
     });
   }
 
@@ -160,6 +174,8 @@ async function writeOne(rule: Rule, brand: string, item: Item) {
   }
 
   const content = result.post.trim();
+  // ready = the rule's channels can take this post as written. Either way the post waits for approval; without
+  // channels the reviewer picks them when scheduling.
   let ready = channels.length > 0 && channels.length === rule.channelIds.length;
   for (const channel of channels) {
     try {
@@ -179,10 +195,10 @@ async function writeOne(rule: Rule, brand: string, item: Item) {
 
   await prisma.$transaction(async (tx) => {
     const current = await tx.feedImport.findUnique({ where: { ruleId_sourceKey: { ruleId: item.ruleId, sourceKey: item.sourceKey } } });
-    if (current?.aiState !== 'PENDING') return; // another attempt already finished it
+    if (current?.aiState !== 'WRITING') return; // another attempt already finished it
     const post = await tx.post.create({
       data: {
-        workspaceId: rule.workspaceId, state: ready ? 'IN_REVIEW' : 'DRAFT', aiNote: note.slice(0, 4000),
+        workspaceId: rule.workspaceId, state: 'IN_REVIEW', aiNote: note.slice(0, 4000),
         revisions: { create: { number: 1, content, channelIds: ready ? rule.channelIds : [], mediaIds: assetId ? [assetId] : [] } },
       },
     });

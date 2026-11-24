@@ -29,6 +29,9 @@ const groups = [
   ['Workspace', [['/settings/content', 'Tags & signatures', 'content'], ['/settings', 'Team settings', 'settings']]],
 ] as const;
 
+/** Each section has its own colour; each item its own gradient icon tile (see .nav-icon in globals.css). */
+const groupTone = { Publish: 'sunrise', Grow: 'aurora', Workspace: 'ocean' } as const;
+
 export function WorkspaceNav({ workspace, canManage }: { workspace: string; canManage: boolean }) {
   const pathname = usePathname();
   const base = '/app/' + workspace;
@@ -36,12 +39,18 @@ export function WorkspaceNav({ workspace, canManage }: { workspace: string; canM
     <nav aria-label="Workspace navigation" className="app-nav">
       {groups.map(([title, items]) => (
         <div key={title} className="app-nav" role="group" aria-label={title}>
-          <p className="app-nav-label">{title}</p>
+          <p className="app-nav-label" data-tone={groupTone[title]}>{title}</p>
           {[...items, ...(title === 'Workspace' && canManage ? [['/billing', 'Usage and billing', 'billing'] as const] : [])].map(([suffix, label, name]) => {
             const href = base + suffix;
             const active = pathname === href || (suffix !== '' && pathname.startsWith(href + '/')
               && !(suffix === '/settings' && pathname.startsWith(base + '/settings/content')));
-            return <Link key={href} href={href} aria-current={active ? 'page' : undefined}>{icons[name]}{label}</Link>;
+            return (
+              <Link key={href} href={href} aria-current={active ? 'page' : undefined} data-item={name}>
+                <span className="nav-icon" data-item={name}>{icons[name]}</span>
+                <span className="nav-text">{label}</span>
+                {name === 'studio' && <span className="nav-badge">AI</span>}
+              </Link>
+            );
           })}
         </div>
       ))}

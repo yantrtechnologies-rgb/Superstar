@@ -20,12 +20,18 @@ export default async function WorkspaceLayout({ children, params }: {
       <a href="#workspace-content" className="skip-link">Skip to content</a>
       <aside className="app-sidebar">
         <Link className="wordmark" href="/app">Superstar</Link>
+        {canWritePosts(membership.role) && (
+          <Link href={`/app/${workspace}/posts/new`} className="sidebar-spark">
+            <span aria-hidden="true">✨</span>
+            <span><strong>Create a post</strong><small>Write it, or let AI help</small></span>
+          </Link>
+        )}
         <WorkspaceNav workspace={workspace} canManage={membership.role === 'OWNER' || membership.role === 'ADMIN'} />
         <nav aria-label="Switch workspace" className="app-nav workspace-switch">
           <p className="app-nav-label">Workspaces</p>
           {memberships.map(({ workspace: item }) => (
             <Link key={item.id} href={`/app/${item.slug}`} aria-current={item.slug === workspace ? 'page' : undefined}>
-              <span className="ws-initial" aria-hidden="true">{item.name.slice(0, 1)}</span>{item.name}
+              <span className="ws-initial" aria-hidden="true" data-hue={[...item.name].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 6}>{item.name.slice(0, 1)}</span>{item.name}
             </Link>
           ))}
           <Link href="/app">

@@ -4,7 +4,7 @@ import {
   revisionThread, validateProviderPost, AssetStorageError, ProviderConfigurationError, type PublishingImage, type PublishResult,
 } from '@cadencedesk/data';
 import type { Prisma } from '@cadencedesk/data';
-import { Client, WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
+import { Client, WorkflowExecutionAlreadyStartedError, WorkflowNotFoundError } from '@temporalio/client';
 
 export async function publishDestination(id: string): Promise<number | null> {
   const now = new Date();
@@ -112,7 +112,6 @@ export async function publishDestination(id: string): Promise<number | null> {
       }
     }
     if (outcome.state === 'PUBLISHED' && !destination.parentId) {
-      await scheduleRepeat(tx, destination.postId);
       await enqueuePublishedWebhooks(tx, {
         workspaceId: destination.post.workspaceId, postId: destination.postId, destinationId: id,
         channelId: destination.channelId, provider: destination.channel.provider,
@@ -124,6 +123,16 @@ export async function publishDestination(id: string): Promise<number | null> {
       data: { state: retryDelay !== null ? 'FAILED' : outcome.state, error: retryDelay !== null ? 'Provider rate limit.' : outcome.error, finishedAt: new Date() },
     });
   });
+  // The next occurrence of a repeating post is created after the result is saved, in its own transaction: when
+  // several channels publish at once, only one creates it, and a collision can never undo a confirmed publication.
+  if (outcome.state === 'PUBLISHED' && !destination.parentId) {
+    try {
+      await prisma.$transaction((tx) => scheduleRepeat(tx, destination.postId));
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code !== 'P2002') console.error(JSON.stringify({ event: 'publishing.repeat_failed', postId: destination.postId, code }));
+    }
+  }
   return retryDelay;
 }
 
@@ -149,6 +158,37 @@ export async function dispatchOutbox(client: Client) {
       data: { dispatchedAt: new Date() },
     });
   }
+}
+
+/**
+ * Safety net for the scheduler: a post still waiting to go out must have a running scheduler workflow. If it is
+ * missing (scheduler data lost or restored from a backup) or ended early, the post is queued again; publishing
+ * itself checks the database state, so a post can never go out twice this way.
+ */
+export async function recoverLostWorkflows(client: Client) {
+  const events = await prisma.outboxEvent.findMany({
+    where: { dispatchedAt: { not: null, lt: new Date(Date.now() - 5 * 60_000) }, destination: { state: 'SCHEDULED' } },
+    orderBy: { dueAt: 'asc' }, take: 200, select: { destinationId: true, dueAt: true },
+  });
+  let recovered = 0;
+  for (const event of events) {
+    const workflowId = `publish-${event.destinationId}-${event.dueAt.getTime()}`;
+    let closed = false;
+    try {
+      const described = await client.workflow.getHandle(workflowId).describe();
+      if (described.status.name === 'RUNNING') continue;
+      closed = true;
+    } catch (error) {
+      if (!(error instanceof WorkflowNotFoundError)) throw error;
+    }
+    // A closed workflow keeps its id, so the re-queued one needs a new id (a 1 ms later due time).
+    await prisma.outboxEvent.updateMany({
+      where: { destinationId: event.destinationId, dueAt: event.dueAt, dispatchedAt: { not: null } },
+      data: { dispatchedAt: null, dueAt: closed ? new Date(event.dueAt.getTime() + 1) : event.dueAt },
+    });
+    recovered++;
+  }
+  return recovered;
 }
 
 export async function reconcileInterrupted() {

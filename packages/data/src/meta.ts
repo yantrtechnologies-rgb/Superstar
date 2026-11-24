@@ -20,16 +20,17 @@ async function credentials(provider: 'facebook' | 'instagram', channelId: string
   return openToken(stored.accessToken, `${provider}/${workspaceId}/${channelId}/access`);
 }
 
-async function request(path: string, token: string, body?: URLSearchParams | FormData) {
+async function request(path: string, token: string, body?: URLSearchParams | FormData, options: { video?: boolean } = {}) {
   const config = metaConfiguration();
   if (!config) throw new ProviderConfigurationError('Meta publishing is not configured.');
-  const url = new URL(`https://graph.facebook.com/${config.version}/${path}`);
+  // Video uploads go to Meta's video host and can take a while for a 20 MB file.
+  const url = new URL(`https://${options.video ? 'graph-video' : 'graph'}.facebook.com/${config.version}/${path}`);
   url.searchParams.set('appsecret_proof', createHmac('sha256', config.secret).update(token).digest('hex'));
   let response: Response;
   try {
     response = await fetch(url, {
       method: body ? 'POST' : 'GET', body, headers: { Authorization: `Bearer ${token}` },
-      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(20_000),
+      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(options.video ? 150_000 : 20_000),
     });
   } catch {
     return { kind: 'uncertain', error: 'Meta did not confirm whether the publishing request completed. Check the account before retrying.' } as const;
@@ -55,10 +56,22 @@ function published(json: unknown, permalink: (id: string) => string | null): Pub
 }
 
 export const facebook: OAuthProviderAdapter = {
-  kind: 'oauth', name: 'Facebook Page', textLimit: 63_206, imageCaptionLimit: 63_206, maxImages: 10,
+  kind: 'oauth', name: 'Facebook Page', textLimit: 63_206, imageCaptionLimit: 63_206, maxImages: 10, acceptsVideo: true,
   connectionHelp: 'Connect a Facebook Page and grant pages_manage_posts.', configured: () => Boolean(metaConfiguration()),
   async publish(_workspace, channel, _nonce, content, image, images) {
     const token = await credentials('facebook', channel.id, channel.workspaceId);
+    if (image?.type === 'video/mp4') {
+      // A video post: the MP4 is uploaded to the Page's videos with the post text as its description.
+      const form = new FormData();
+      form.set('description', content); form.set('published', 'true');
+      form.set('source', new Blob([image.bytes], { type: 'video/mp4' }), 'video.mp4');
+      const uploaded = await request(`${channel.externalId}/videos`, token, form, { video: true });
+      if (uploaded.kind !== 'ok') return uploaded;
+      const parsed = z.object({ id: z.string().min(1) }).safeParse(uploaded.json);
+      return parsed.success
+        ? { kind: 'published', externalId: parsed.data.id, permalink: `https://www.facebook.com/watch/?v=${parsed.data.id}` }
+        : { kind: 'uncertain', error: 'Facebook accepted the video without returning an identifier.' };
+    }
     const photos = (images ?? []).filter((item) => item.type.startsWith('image/'));
     if (photos.length > 1) {
       // Upload each photo unpublished, then publish one feed post that attaches them all.
