@@ -790,3 +790,81 @@ button[aria-busy='true'] { cursor: progress; opacity: .85; }
 .channel-pill:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .channel-pill .channel-avatar { width: 1.4rem; height: 1.4rem; font-size: .7rem; }
 .channel-pill small { opacity: .7; }
+
+/* ---------- Playful background: Superstar's cartoon cast (decoration only) ---------- */
+.app-main { position: relative; isolation: isolate; }
+.app-main > header, .app-main > main { position: relative; z-index: 1; }
+.app-main > .app-topbar { z-index: 3; }
+.playground { position: fixed; top: 0; bottom: 0; left: 15.5rem; right: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.playground svg { overflow: visible; display: block; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .35)); }
+.critter { position: absolute; top: 0; left: 0; opacity: .5; will-change: transform; }
+.critter-bob { animation: critter-bob 4.2s ease-in-out infinite; }
+.critter-eye { transform-box: fill-box; transform-origin: center; animation: critter-blink 5.5s infinite; }
+.critter-wave { transform-box: fill-box; transform-origin: 0% 100%; animation: critter-wave 1.6s ease-in-out infinite; }
+.critter-flame { transform-box: fill-box; transform-origin: 50% 0%; animation: critter-flame .35s ease-in-out infinite alternate; }
+.critter-heart { transform-box: fill-box; transform-origin: center; animation: critter-pulse 1.4s ease-in-out infinite; }
+.critter-z { animation: critter-z 3s ease-in-out infinite; }
+
+/* Each character has its own slow route across the content area. */
+.critter-1 { animation: roam-1 58s ease-in-out infinite; }
+.critter-2 { animation: roam-2 46s ease-in-out infinite; }
+.critter-2 .critter-bob { animation-duration: 3s; }
+.critter-3 { animation: roam-3 64s ease-in-out infinite; }
+.critter-4 { animation: roam-4 52s ease-in-out infinite; }
+.critter-5 { animation: roam-5 80s ease-in-out infinite; }
+.critter-5 .critter-bob { animation-duration: 6s; }
+.critter-6 { animation: roam-6 38s linear infinite; }
+.critter-3 .critter-eye, .critter-4 .critter-eye { animation-delay: 1.8s; }
+.critter-6 .critter-eye { animation-delay: 3.1s; }
+
+@keyframes roam-1 { 0%, 100% { transform: translate(6vw, 72vh) rotate(-6deg); } 25% { transform: translate(34vw, 18vh) rotate(8deg); } 50% { transform: translate(66vw, 48vh) rotate(-4deg); } 75% { transform: translate(40vw, 82vh) rotate(6deg); } }
+@keyframes roam-2 { 0% { transform: translate(70vw, 105vh) rotate(12deg); } 45% { transform: translate(48vw, 30vh) rotate(-8deg); } 70% { transform: translate(60vw, -18vh) rotate(10deg); } 70.01%, 100% { transform: translate(18vw, 110vh) rotate(-10deg); } }
+@keyframes roam-3 { 0%, 100% { transform: translate(62vw, 12vh); } 33% { transform: translate(14vw, 34vh); } 66% { transform: translate(52vw, 76vh); } }
+@keyframes roam-4 { 0%, 100% { transform: translate(22vw, 60vh) rotate(-8deg); } 30% { transform: translate(58vw, 70vh) rotate(6deg); } 60% { transform: translate(70vw, 22vh) rotate(-4deg); } 85% { transform: translate(30vw, 10vh) rotate(8deg); } }
+@keyframes roam-5 { 0%, 100% { transform: translate(-12vw, 8vh); } 50% { transform: translate(78vw, 4vh); } }
+@keyframes roam-6 { 0% { transform: translate(-14vw, 55vh) rotate(-6deg); } 50% { transform: translate(40vw, 38vh) rotate(4deg); } 100% { transform: translate(92vw, 22vh) rotate(-8deg); } }
+
+@keyframes critter-bob { 0%, 100% { translate: 0 0; rotate: -3deg; } 50% { translate: 0 -10px; rotate: 3deg; } }
+@keyframes critter-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+@keyframes critter-wave { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(18deg); } }
+@keyframes critter-flame { from { transform: scaleY(.8); opacity: .85; } to { transform: scaleY(1.15); opacity: 1; } }
+@keyframes critter-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.25); } }
+@keyframes critter-z { 0%, 100% { opacity: 0; transform: translate(0, 4px); } 50% { opacity: 1; transform: translate(4px, -6px); } }
+
+/* Little likes, hearts and sparkles floating up. */
+.floaty { position: absolute; bottom: -30px; opacity: 0; animation: floaty-rise 14s linear infinite; }
+.floaty-1 { left: 12%; animation-delay: 0s; }
+.floaty-2 { left: 28%; animation-delay: 3s; animation-duration: 17s; }
+.floaty-3 { left: 44%; animation-delay: 6s; }
+.floaty-4 { left: 58%; animation-delay: 1.5s; animation-duration: 19s; }
+.floaty-5 { left: 70%; animation-delay: 8s; }
+.floaty-6 { left: 82%; animation-delay: 4.5s; animation-duration: 16s; }
+.floaty-7 { left: 36%; animation-delay: 10s; animation-duration: 21s; }
+.floaty-8 { left: 90%; animation-delay: 12s; }
+@keyframes floaty-rise {
+  0% { transform: translate(0, 0) scale(.7) rotate(0); opacity: 0; }
+  10% { opacity: .55; }
+  50% { transform: translate(18px, -50vh) scale(1) rotate(12deg); }
+  90% { opacity: .4; }
+  100% { transform: translate(-12px, -105vh) scale(.8) rotate(-10deg); opacity: 0; }
+}
+
+@media (max-width: 760px) {
+  .playground { left: 0; }
+  .critter { opacity: .32; }
+  .critter-3, .critter-4, .critter-5, .floaty-5, .floaty-6, .floaty-7, .floaty-8 { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .critter, .critter *, .floaty { animation: none !important; }
+  .critter-1 { transform: translate(64vw, 70vh); }
+  .critter-3 { transform: translate(70vw, 14vh); }
+  .critter-2, .critter-4, .critter-5, .critter-6, .floaty { display: none; }
+}
+/* Frosted-glass cards in the app area so the cartoon cast shows softly through as it passes behind. */
+.app-main { --surface: rgba(22, 20, 31, .74); --bg-raised: rgba(17, 15, 24, .8); }
+.app-main :is(.panel, .post-list > li, .channel-card, .provider-card, .stat-card, .composer-card, .media-card, .inbox-post, .schedule-panel, .calendar-channels, .content-calendar, .developer-grid section, .review-preview, .automation-switch) {
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+}
+.app-main :is(input:not([type='checkbox'], [type='radio']), select, textarea) { background-color: #110f18; }
+.app-main .critter { opacity: .72; }

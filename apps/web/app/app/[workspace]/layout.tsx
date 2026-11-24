@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { getMembership, requireUser } from '../../../lib/require-user';
 import { logoutAction } from '../actions';
+import { PlayfulBackdrop } from './playful-backdrop';
 import { WorkspaceNav } from './workspace-nav';
 
 export default async function WorkspaceLayout({ children, params }: {
@@ -41,6 +42,7 @@ export default async function WorkspaceLayout({ children, params }: {
         </nav>
       </aside>
       <div className="app-main">
+        <PlayfulBackdrop />
         <header className="app-topbar">
           <div className="app-topbar-title">
             <strong>{membership.workspace.name}</strong>
