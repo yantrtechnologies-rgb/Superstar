@@ -1,7 +1,7 @@
-import { canManageTeam, findMembership, listChannelSettings, postingDays } from '@cadencedesk/data';
+import { canManageTeam, listChannelSettings, postingDays } from '@cadencedesk/data';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireUser } from '../../../../../lib/require-user';
+import { getMembership, requireUser } from '../../../../../lib/require-user';
 import { addSlotAction, assignGroupAction, createGroupAction, removeSlotAction } from './actions';
 
 const messages: Record<string, string> = {
@@ -21,7 +21,7 @@ export default async function ChannelOrganization({ params, searchParams }: {
 }) {
   const user = await requireUser();
   const [{ workspace }, { status }] = await Promise.all([params, searchParams]);
-  const [membership, settings] = await Promise.all([findMembership(user.id, workspace), listChannelSettings(user.id, workspace)]);
+  const [membership, settings] = await Promise.all([getMembership(user.id, workspace), listChannelSettings(user.id, workspace)]);
   if (!membership || !settings) notFound();
   const canManage = canManageTeam(membership.role);
   return (
@@ -37,6 +37,12 @@ export default async function ChannelOrganization({ params, searchParams }: {
           <input id="group-name" name="name" maxLength={80} required />
           <button type="submit">Create group</button>
         </form>
+      )}
+      {settings.clientGroups.length > 0 && (
+        <section aria-label="Client groups">
+          <h2>Client groups</h2>
+          <ul className="workspaces-list">{settings.clientGroups.map((group) => <li key={group.id}>{group.name}</li>)}</ul>
+        </section>
       )}
       {settings.channels.length ? <ul className="post-list">{settings.channels.map((channel) => (
         <li key={channel.id}>

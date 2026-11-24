@@ -1,7 +1,7 @@
-import { canManageTeam, findMembership, listWebhooks, webhookConfigured } from '@cadencedesk/data';
+import { canManageTeam, listWebhooks, webhookConfigured } from '@cadencedesk/data';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireUser } from '../../../../../lib/require-user';
+import { getMembership, requireUser } from '../../../../../lib/require-user';
 import { toggleWebhookAction } from './actions';
 import { WebhookSecretForm } from './secret-form';
 
@@ -16,7 +16,7 @@ export default async function Webhooks({ params, searchParams }: {
 }) {
   const user = await requireUser();
   const [{ workspace }, { status }] = await Promise.all([params, searchParams]);
-  const membership = await findMembership(user.id, workspace);
+  const membership = await getMembership(user.id, workspace);
   if (!membership || !canManageTeam(membership.role)) notFound();
   const subscriptions = await listWebhooks(user.id, workspace);
   const configured = webhookConfigured();

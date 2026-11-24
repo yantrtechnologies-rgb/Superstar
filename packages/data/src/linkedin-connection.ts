@@ -1,10 +1,13 @@
+import { assertChannelCapacity } from './plans';
 import { createHash, randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from './client';
-import { linkedInAuthorization, linkedInDestinations, linkedInTokens, LinkedInAuthorizationError, type LinkedInTokens } from './linkedin-api';
+import { linkedInAuthorization, linkedInDestinations, linkedInTokens, LinkedInAuthorizationError, type LinkedInMode, type LinkedInTokens } from './linkedin-api';
 import { ProviderConfigurationError } from './provider-contract';
 import { openToken, sealToken } from './token-vault';
 import { canManageTeam, WorkspaceAccessError } from './workspaces';
+
+export { linkedInPagesConfigured } from './linkedin-api';
 
 const provider = 'linkedin';
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -15,21 +18,26 @@ async function requireManager(client: Prisma.TransactionClient, userId: string, 
   if (!membership || !canManageTeam(membership.role)) throw new WorkspaceAccessError('You cannot manage this connection.');
 }
 
-export async function beginLinkedInConnection(userId: string, slug: string) {
+export async function beginLinkedInConnection(userId: string, slug: string, mode: LinkedInMode = 'member') {
   const workspace = await prisma.workspace.findUnique({ where: { slug }, select: { id: true } });
   if (!workspace) throw new WorkspaceAccessError('Workspace unavailable.');
   await requireManager(prisma, userId, workspace.id);
   const state = randomBytes(32).toString('base64url');
-  const url = linkedInAuthorization(state);
+  const url = linkedInAuthorization(state, mode);
   const now = new Date();
   await prisma.$transaction([
     prisma.oAuthState.deleteMany({ where: { userId, expiresAt: { lte: now } } }),
     prisma.oAuthState.create({ data: {
-      hash: digest(state), provider, userId, workspaceId: workspace.id,
+      hash: digest(state), provider, userId, workspaceId: workspace.id, payload: mode === 'pages' ? 'pages' : null,
       expiresAt: new Date(now.getTime() + 10 * 60_000),
     } }),
   ]);
   return url;
+}
+
+/** Company-page channels use the pages app (when configured); profile channels use the main app. */
+function channelMode(externalId: string): LinkedInMode {
+  return externalId.startsWith('organization:') && process.env.LINKEDIN_PAGES_CLIENT_ID ? 'pages' : 'member';
 }
 
 function encryptedTokens(tokens: LinkedInTokens, binding: string) {
@@ -42,7 +50,7 @@ function encryptedTokens(tokens: LinkedInTokens, binding: string) {
   };
 }
 
-export async function completeLinkedInConnection(userId: string, state: string, code?: string) {
+export async function completeLinkedInConnection(userId: string, state: string, code?: string, error?: string) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(state)) throw new ProviderConfigurationError('The LinkedIn connection request is invalid.');
   const hash = digest(state);
   const where = { hash, provider, userId, expiresAt: { gt: new Date() } };
@@ -51,12 +59,19 @@ export async function completeLinkedInConnection(userId: string, state: string, 
   const consumed = await prisma.oAuthState.deleteMany({ where });
   if (!consumed.count) throw new ProviderConfigurationError('The LinkedIn connection request was already used.');
   await requireManager(prisma, userId, grant.workspaceId);
-  if (!code) return { slug: grant.workspace.slug, connected: false };
+  const mode: LinkedInMode = grant.payload === 'pages' ? 'pages' : 'member';
+  if (!code) {
+    // LinkedIn answers unauthorized_scope_error while the app's page access (Community Management API) is unapproved.
+    const reason = mode === 'pages' && error === 'unauthorized_scope_error' ? 'pages-not-approved' : undefined;
+    return { slug: grant.workspace.slug, connected: false, reason };
+  }
   try {
-    const tokens = await linkedInTokens({ code });
-    const destinations = await linkedInDestinations(tokens.access);
+    const tokens = await linkedInTokens({ code }, mode);
+    const destinations = await linkedInDestinations(tokens.access, mode);
+    if (!destinations.length) return { slug: grant.workspace.slug, connected: false, reason: mode === 'pages' ? 'no-pages' : undefined };
     await prisma.$transaction(async (tx) => {
       await requireManager(tx, userId, grant.workspaceId);
+      await assertChannelCapacity(tx, grant.workspaceId, destinations.map((d) => ({ provider, externalId: d.externalId })));
       for (const destination of destinations) {
         const channel = await tx.channel.upsert({
           where: { workspaceId_provider_externalId: { workspaceId: grant.workspaceId, provider, externalId: destination.externalId } },
@@ -72,10 +87,10 @@ export async function completeLinkedInConnection(userId: string, state: string, 
         });
       }
     });
-    return { slug: grant.workspace.slug, connected: true };
-  } catch (error) {
-    if (!(error instanceof ProviderConfigurationError)) throw error;
-    return { slug: grant.workspace.slug, connected: false };
+    return { slug: grant.workspace.slug, connected: true, reason: undefined as string | undefined };
+  } catch (failure) {
+    if (!(failure instanceof ProviderConfigurationError)) throw failure;
+    return { slug: grant.workspace.slug, connected: false, reason: undefined as string | undefined };
   }
 }
 
@@ -105,7 +120,7 @@ export async function linkedInAccess(channelId: string, workspaceId: string, rej
       FOR UPDATE OF credential
     `;
     const current = await tx.providerCredential.findFirst({
-      where: { channelId, channel: { provider, workspaceId } },
+      where: { channelId, channel: { provider, workspaceId } }, include: { channel: { select: { externalId: true } } },
     });
     if (!current || current.revokedAt) return null;
     const now = new Date();
@@ -119,7 +134,7 @@ export async function linkedInAccess(channelId: string, workspaceId: string, rej
         : null;
     }
     try {
-      const tokens = await linkedInTokens({ refresh: openToken(current.refreshToken, binding + '/refresh') });
+      const tokens = await linkedInTokens({ refresh: openToken(current.refreshToken, binding + '/refresh') }, channelMode(current.channel.externalId));
       const next = encryptedTokens(tokens, binding);
       // LinkedIn may omit a new refresh token or TTL. Keep the existing value and original expiry.
       await tx.providerCredential.update({

@@ -1,4 +1,4 @@
-import { botToken, ProviderConfigurationError, retryAfter, type BotProviderAdapter } from './provider-contract';
+import { botToken, ProviderConfigurationError, retryAfter, type BotProviderAdapter, type PublishingImage, type PublishResult } from './provider-contract';
 
 type TelegramChat = { id?: number; type?: string; title?: string };
 type TelegramResponse<T> = { ok?: boolean; result?: T; error_code?: number; parameters?: { retry_after?: number } };
@@ -37,7 +37,14 @@ export const telegram: BotProviderAdapter = {
     }
     throw new ProviderConfigurationError('The bot could not read that Telegram channel or supergroup.');
   },
-  async publish(workspace, channel, _nonce, content, image) {
+  publish: (workspace, channel, _nonce, content, image) => sendTelegram(workspace, channel, content, image),
+  reply: (workspace, channel, _nonce, content, parentId) => sendTelegram(workspace, channel, content, undefined, parentId),
+};
+
+async function sendTelegram(
+  workspace: string, channel: { externalId: string }, content: string, image?: PublishingImage, replyTo?: string,
+): Promise<PublishResult> {
+    const reply = replyTo && /^\d+$/.test(replyTo) ? { message_id: Number(replyTo), allow_sending_without_reply: false } : undefined;
     let url;
     try {
       url = endpoint(workspace, channel.externalId, image ? 'sendPhoto' : 'sendMessage');
@@ -51,10 +58,14 @@ export const telegram: BotProviderAdapter = {
       body = new FormData();
       body.set('chat_id', channel.externalId);
       body.set('caption', content);
+      if (reply) body.set('reply_parameters', JSON.stringify(reply));
       body.set('photo', new Blob([image.bytes], { type: image.type }), image.type === 'image/png' ? 'photo.png' : 'photo.jpg');
     } else {
       headers = { 'Content-Type': 'application/json' };
-      body = JSON.stringify({ chat_id: Number(channel.externalId), text: content, link_preview_options: { is_disabled: true } });
+      body = JSON.stringify({
+        chat_id: Number(channel.externalId), text: content, link_preview_options: { is_disabled: true },
+        ...(reply ? { reply_parameters: reply } : {}),
+      });
     }
     try {
       const response = await fetch(url, { method: 'POST', headers, body, redirect: 'error', signal: AbortSignal.timeout(15_000) });
@@ -70,8 +81,7 @@ export const telegram: BotProviderAdapter = {
     } catch {
       return { kind: 'uncertain', error: 'The Telegram result is unclear. Check the chat before sending again.' };
     }
-  },
-};
+}
 
 export async function telegramMemberCount(workspace: string, destinationId: string) {
   try {

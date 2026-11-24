@@ -1,7 +1,7 @@
-import { canManageTeam, findMembership, listApiKeys } from '@cadencedesk/data';
+import { canManageTeam, listApiKeys } from '@cadencedesk/data';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireUser } from '../../../../../lib/require-user';
+import { getMembership, requireUser } from '../../../../../lib/require-user';
 import { revokeKeyAction } from './actions';
 import { KeyForm } from './key-form';
 
@@ -20,7 +20,7 @@ export default async function ApiKeys({ params, searchParams }: {
 }) {
   const user = await requireUser();
   const [{ workspace }, { status }] = await Promise.all([params, searchParams]);
-  const membership = await findMembership(user.id, workspace);
+  const membership = await getMembership(user.id, workspace);
   if (!membership || !canManageTeam(membership.role)) notFound();
   const keys = await listApiKeys(user.id, workspace);
   const docs = apiDocs();

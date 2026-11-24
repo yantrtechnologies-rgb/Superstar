@@ -1,5 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Load includes with one JOIN query instead of one query per relation (each round trip to RDS costs ~0.3 s).
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
@@ -21,8 +23,11 @@ model Workspace {
   clientGroups ClientGroup[]
   oauthStates OAuthState[]
   creditAccount CreditAccount?
+  creditPurchases CreditPurchase[]
   billingAccount BillingAccount?
   stripeEvents StripeEvent[]
+  razorpaySubscription RazorpaySubscription?
+  razorpayEvents RazorpayEvent[]
   aiJobs AiJob[]
   rssRules RssRule[]
   webhooks WebhookSubscription[]
@@ -30,6 +35,9 @@ model Workspace {
   assets Asset[]
   channels Channel[]
   posts Post[]
+  tags Tag[]
+  signatures Signature[]
+  postSets PostSet[]
 
   @@map("workspaces")
 }
@@ -48,14 +56,39 @@ model User {
   email         String       @unique
   emailVerified DateTime?    @map("email_verified")
   image         String?
+  passwordHash  String?      @map("password_hash")
+  failedLogins  Int          @default(0) @map("failed_logins")
+  lockedUntil   DateTime?    @map("locked_until")
   sessions      Session[]
   apiKeys       ApiKey[]
   oauthStates   OAuthState[]
   memberships   Membership[]
   sentInvites   Invitation[]
   auditEvents   AuditEvent[]
+  accounts      Account[]
 
   @@map("users")
+}
+
+/// Sign-in identities from OAuth providers (Sign in with Google). Provider tokens are not kept.
+model Account {
+  id                String  @id @default(uuid()) @db.Uuid
+  userId            String  @map("user_id") @db.Uuid
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
 }
 
 model Session {
@@ -171,6 +204,11 @@ model Post {
   feedImports FeedImport[]
   revisions   PostRevision[]
   destinations Destination[]
+  tags        PostTag[]
+  /// Re-publish this post every N days after it goes out (null = once).
+  repeatEveryDays Int? @map("repeat_every_days")
+  /// The post this one repeats; each post spawns at most one next occurrence.
+  repeatSourceId String? @unique @db.Uuid @map("repeat_source_id")
 
   @@unique([workspaceId, createRequestKey])
   @@index([workspaceId, scheduledAt])
@@ -189,6 +227,12 @@ model PostRevision {
   approval  Approval?
   assetId   String? @db.Uuid @map("asset_id")
   asset     Asset? @relation(fields: [assetId], references: [id])
+  /// Ordered media for the post; when empty, assetId (if any) is the only media.
+  mediaIds  String[] @default([]) @db.Uuid @map("media_ids")
+  /// Per-channel text that replaces content for that channel: { [channelId]: text }.
+  overrides Json @default("{}")
+  /// Follow-up thread items published as replies: [{ content, delayMinutes }].
+  thread    Json @default("[]")
 
   @@id([postId, number])
   @@map("post_revisions")
@@ -216,6 +260,8 @@ model Destination {
   startedAt   DateTime?    @map("started_at")
   notBefore   DateTime?    @map("not_before")
   parentId    String?      @unique @db.Uuid @map("parent_id")
+  /// 0 for the main post; 1..n for thread items published as replies.
+  threadIndex Int          @default(0) @map("thread_index")
   parent      Destination? @relation("DestinationFollowUp", fields: [parentId], references: [id], onDelete: Cascade)
   followUp    Destination? @relation("DestinationFollowUp")
   externalId  String?      @map("external_id")
@@ -263,6 +309,8 @@ model Asset {
   size        Int
   checksum    String
   label       String?
+  alt         String?
+  archivedAt  DateTime?      @map("archived_at")
   createdAt   DateTime       @default(now()) @map("created_at")
   workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   aiJobs      AiJob[] @relation("StudioOutput")
@@ -387,6 +435,7 @@ enum AiKind {
   IMAGE
   CLIP
   TRANSCRIBE
+  VIDEO
 }
 
 enum AiJobState {
@@ -402,6 +451,7 @@ enum CreditEntryKind {
   RESERVE
   CAPTURE
   REFUND
+  PURCHASE
 }
 
 model CreditAccount {
@@ -621,4 +671,99 @@ model StripeEvent {
 
   @@index([workspaceId])
   @@map("stripe_events")
+}
+
+model RazorpaySubscription {
+  workspaceId String @id @db.Uuid @map("workspace_id")
+  subscriptionId String @unique @map("razorpay_subscription_id")
+  planId String @map("plan_id")
+  status String
+  shortUrl String? @map("short_url")
+  currentEnd DateTime? @map("current_end")
+  cancelAtCycleEnd Boolean @default(false) @map("cancel_at_cycle_end")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("razorpay_subscriptions")
+}
+
+model RazorpayEvent {
+  id String @id
+  type String
+  workspaceId String @map("workspace_id") @db.Uuid
+  processedAt DateTime @default(now()) @map("processed_at")
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("razorpay_events")
+}
+
+model Tag {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid @map("workspace_id")
+  name        String
+  color       String
+  createdAt   DateTime  @default(now()) @map("created_at")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  posts       PostTag[]
+
+  @@unique([workspaceId, name])
+  @@map("tags")
+}
+
+model PostTag {
+  postId String @db.Uuid @map("post_id")
+  tagId  String @db.Uuid @map("tag_id")
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId])
+  @@index([tagId])
+  @@map("post_tags")
+}
+
+model Signature {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid @map("workspace_id")
+  name        String
+  content     String
+  isDefault   Boolean   @default(false) @map("is_default")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("signatures")
+}
+
+/// A saved composer preset: channels, text, thread, tags and repeat.
+model PostSet {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid @map("workspace_id")
+  name        String
+  data        Json
+  createdAt   DateTime  @default(now()) @map("created_at")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, name])
+  @@map("post_sets")
+}
+
+/// A one-time AI credit pack bought through a Razorpay payment link. Credits are granted once, when paid.
+model CreditPurchase {
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String    @map("workspace_id") @db.Uuid
+  userId        String?   @map("user_id") @db.Uuid
+  pack          String
+  credits       Int
+  amountPaise   Int       @map("amount_paise")
+  paymentLinkId String?   @unique @map("payment_link_id")
+  shortUrl      String?   @map("short_url")
+  status        String    @default("created")
+  paymentId     String?   @map("payment_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  paidAt        DateTime? @map("paid_at")
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@map("credit_purchases")
 }

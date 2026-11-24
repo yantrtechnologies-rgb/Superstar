@@ -1,5 +1,8 @@
 const config = {
   experimental: { serverActions: { bodySizeLimit: '22mb' } },
+  outputFileTracingIncludes: {
+    '/*': ['../../node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/**'],
+  },
   async headers() {
     return [{
       source: '/app/:workspace/channels/meta',

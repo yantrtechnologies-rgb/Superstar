@@ -1,6 +1,6 @@
 'use server';
 
-import { beginMetaConnection, disconnectMetaAccount, metaProvider, ProviderConfigurationError, saveMetaAccounts, WorkspaceAccessError } from '@cadencedesk/data';
+import { beginMetaConnection, disconnectMetaAccount, metaProvider, ProviderConfigurationError, saveMetaAccounts, WorkspaceAccessError, PlanLimitError } from '@cadencedesk/data';
 import { workspaceSlug } from '@cadencedesk/contracts';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
@@ -24,7 +24,7 @@ export async function metaConnectionAction(form: FormData) {
     }
   } catch (error) {
     if (!(error instanceof ProviderConfigurationError || error instanceof WorkspaceAccessError || error instanceof z.ZodError)) throw error;
-    destination = base + '?status=meta-unavailable';
+    destination = base + (error instanceof PlanLimitError ? '?status=plan-limit' : '?status=meta-unavailable');
   }
   redirect(destination);
 }

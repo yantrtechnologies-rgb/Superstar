@@ -4,8 +4,9 @@ import type * as analytics from './analytics';
 import type * as ai from './ai';
 import type * as rss from './rss';
 
+// 3 minutes: an Instagram carousel uploads and waits on up to 10 photos. Stays below the 5-minute stale-publish check.
 const { publishDestination } = proxyActivities<typeof activities>({
-  startToCloseTimeout: '45 seconds',
+  startToCloseTimeout: '3 minutes',
   retry: { maximumAttempts: 5 },
 });
 
@@ -30,8 +31,15 @@ export async function refreshChannelMetric(jobId: string) {
 const { runAiJob } = proxyActivities<typeof ai>({ startToCloseTimeout: '2 minutes', retry: { maximumAttempts: 3 } });
 const { importRssRun } = proxyActivities<typeof rss>({ startToCloseTimeout: '50 seconds', retry: { maximumAttempts: 3 } });
 
+// Video generation can take several minutes; one attempt only, so a customer is never charged twice by the provider.
+const { runAiJob: runAiVideoJob } = proxyActivities<typeof ai>({ startToCloseTimeout: '15 minutes', retry: { maximumAttempts: 1 } });
+
 export async function generateAiContent(jobId: string) {
   await runAiJob(jobId);
+}
+
+export async function generateAiVideo(jobId: string) {
+  await runAiVideoJob(jobId);
 }
 
 export async function importRssFeed(runId: string) {

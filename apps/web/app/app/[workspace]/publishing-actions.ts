@@ -4,8 +4,9 @@ import {
   AssetStorageError, beginLinkedInConnection, beginXConnection, beginYouTubeConnection, cancelPost, connectChannel,
   disconnectLinkedIn, disconnectX, disconnectYouTube, ProviderConfigurationError, PostingSlotUnavailableError,
   imageLimit, videoLimit, providerIds, providers, savePost, schedulePost,
-  transitionPost, WorkspaceAccessError,
+  transitionPost, WorkspaceAccessError, PlanLimitError,
 } from '@cadencedesk/data';
+import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { requireUser } from '../../../lib/require-user';
@@ -23,11 +24,13 @@ async function run(form: FormData, page: 'posts' | 'channels', command: (actor: 
   } catch (error) {
     if (error instanceof z.ZodError) status = 'invalid';
     else if (error instanceof PostingSlotUnavailableError) status = 'slot';
+    else if (error instanceof PlanLimitError) status = 'plan-limit';
     else if (error instanceof WorkspaceAccessError) status = 'unavailable';
     else if (error instanceof ProviderConfigurationError) status = 'provider';
     else if (error instanceof AssetStorageError) status = 'image';
     else throw error;
   }
+  revalidatePath(`/app/${scope.data}`, 'layout');
   redirect(`/app/${scope.data}/${page}?status=${status}`);
 }
 
@@ -112,8 +115,9 @@ export async function disconnectLinkedInAction(form: FormData) {
 
 export async function startOAuthAction(form: FormData) {
   await run(form, 'channels', async (actor, slug) => {
-    const provider = z.enum(['linkedin', 'youtube', 'x']).parse(form.get('provider'));
+    const provider = z.enum(['linkedin', 'linkedin-pages', 'youtube', 'x']).parse(form.get('provider'));
     const destination = provider === 'linkedin' ? await beginLinkedInConnection(actor, slug)
+      : provider === 'linkedin-pages' ? await beginLinkedInConnection(actor, slug, 'pages')
       : provider === 'youtube' ? await beginYouTubeConnection(actor, slug) : await beginXConnection(actor, slug);
     redirect(destination);
   });

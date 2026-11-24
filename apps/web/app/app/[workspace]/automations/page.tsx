@@ -1,7 +1,7 @@
-import { canManageTeam, canWritePosts, findMembership, listChannels, listRssRules, rssConfigured } from '@cadencedesk/data';
+import { canManageTeam, canWritePosts, listChannels, listRssRules, rssConfigured } from '@cadencedesk/data';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { requireUser } from '../../../../lib/require-user';
+import { getMembership, requireUser } from '../../../../lib/require-user';
 import { addFeedAction, runFeedAction, toggleFeedAction } from './actions';
 
 const messages: Record<string, string> = {
@@ -17,7 +17,7 @@ export default async function Automations({ params, searchParams }: {
   const user = await requireUser();
   const [{ workspace }, { status }] = await Promise.all([params, searchParams]);
   const [membership, rules, channels] = await Promise.all([
-    findMembership(user.id, workspace), listRssRules(user.id, workspace), listChannels(user.id, workspace),
+    getMembership(user.id, workspace), listRssRules(user.id, workspace), listChannels(user.id, workspace),
   ]);
   if (!membership) notFound();
   const canManage = canManageTeam(membership.role);

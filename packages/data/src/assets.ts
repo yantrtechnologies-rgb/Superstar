@@ -17,16 +17,18 @@ function storage() {
   const accessKeyId = process.env.OBJECT_STORAGE_ACCESS_KEY;
   const secretAccessKey = process.env.OBJECT_STORAGE_SECRET_KEY;
   const bucket = process.env.OBJECT_STORAGE_BUCKET;
-  if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
+  if (!assetStorageConfigured() || !bucket) {
     throw new AssetStorageError('Object storage requires operator configuration.');
   }
   return {
     bucket,
     client: new S3Client({
-      endpoint,
-      region: process.env.OBJECT_STORAGE_REGION ?? 'auto',
-      forcePathStyle: true,
-      credentials: { accessKeyId, secretAccessKey },
+      // A custom endpoint means an S3-compatible store (MinIO, local dev, R2) with path-style URLs.
+      // Without one, the client talks to Amazon S3 in OBJECT_STORAGE_REGION.
+      ...(endpoint ? { endpoint, forcePathStyle: true } : {}),
+      region: process.env.OBJECT_STORAGE_REGION ?? (endpoint ? 'auto' : undefined),
+      // Without static keys the SDK's default chain is used (AWS_PROFILE, `aws login`, instance roles).
+      ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
       requestChecksumCalculation: 'WHEN_REQUIRED',
       maxAttempts: 1,
     }),
@@ -51,12 +53,12 @@ function videoType(bytes: Uint8Array<ArrayBuffer>) {
 }
 
 export function assetStorageConfigured() {
-  return [
-    process.env.OBJECT_STORAGE_ENDPOINT,
-    process.env.OBJECT_STORAGE_BUCKET,
-    process.env.OBJECT_STORAGE_ACCESS_KEY,
-    process.env.OBJECT_STORAGE_SECRET_KEY,
-  ].every(Boolean);
+  const env = process.env;
+  if (!env.OBJECT_STORAGE_BUCKET) return false;
+  // S3-compatible stores need an endpoint plus static keys; Amazon S3 needs a region and can use the default credential chain.
+  return env.OBJECT_STORAGE_ENDPOINT
+    ? Boolean(env.OBJECT_STORAGE_ACCESS_KEY && env.OBJECT_STORAGE_SECRET_KEY)
+    : Boolean(env.OBJECT_STORAGE_REGION);
 }
 
 export function uploadImage(workspaceId: string, bytes: Uint8Array<ArrayBuffer>) {

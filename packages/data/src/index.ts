@@ -23,3 +23,8 @@ export * from './meta-connection';
 export * from './meta';
 export * from './youtube';
 export * from './x';
+export * from './passwords';
+export * from './composer';
+export * from './plans';
+export * from './comments';
+export type { Prisma } from '@prisma/client';

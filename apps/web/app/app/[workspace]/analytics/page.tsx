@@ -1,7 +1,7 @@
-import { canWritePosts, findMembership, getProvider, workspaceMetrics } from '@cadencedesk/data';
+import { canWritePosts, getProvider, workspaceMetrics } from '@cadencedesk/data';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { requireUser } from '../../../../lib/require-user';
+import { getMembership, requireUser } from '../../../../lib/require-user';
 import { refreshMetricAction } from './actions';
 
 const messages: Record<string, string> = {
@@ -15,7 +15,7 @@ export default async function Analytics({ params, searchParams }: {
 }) {
   const user = await requireUser();
   const [{ workspace }, { days, status }] = await Promise.all([params, searchParams]);
-  const membership = await findMembership(user.id, workspace);
+  const membership = await getMembership(user.id, workspace);
   if (!membership) notFound();
   const windowDays = days === '7' || days === '90' ? Number(days) : 30;
   const channels = await workspaceMetrics(user.id, workspace, new Date(Date.now() - windowDays * 86_400_000));

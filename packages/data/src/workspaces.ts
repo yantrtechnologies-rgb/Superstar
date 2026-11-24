@@ -15,7 +15,9 @@ export function canInvite(role: WorkspaceRole, invitedRole: WorkspaceRole) {
     || (role === 'OWNER' && invitedRole === 'ADMIN');
 }
 
-export class WorkspaceAccessError extends Error {}
+export { WorkspaceAccessError } from './errors';
+import { WorkspaceAccessError } from './errors';
+import { assertSeatCapacity } from './plans';
 
 export function findMembership(userId: string, slug: string) {
   return prisma.membership.findFirst({
@@ -84,6 +86,7 @@ export async function inviteMember(userId: string, slug: string, email: string, 
     const { workspace } = membership;
     const alreadyMember = await tx.membership.findFirst({ where: { workspaceId: workspace.id, user: { email } } });
     if (alreadyMember) throw new WorkspaceAccessError('This person already belongs to the workspace.');
+    await assertSeatCapacity(tx, workspace.id, { invitingEmail: email });
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const invitation = await tx.invitation.upsert({
       where: { workspaceId_email: { workspaceId: workspace.id, email } },
@@ -110,6 +113,9 @@ export async function acceptInvitation(userId: string, invitationId: string) {
     const claimed = await tx.invitation.updateMany({ where: { ...pending, role: invitation.role }, data: { acceptedAt: now } });
     if (!claimed.count) throw new WorkspaceAccessError('This invitation changed. Refresh and try again.');
     const { workspace } = invitation;
+    if (!(await tx.membership.findUnique({ where: { workspaceId_userId: { workspaceId: workspace.id, userId } } }))) {
+      await assertSeatCapacity(tx, workspace.id, { joining: true });
+    }
     await tx.membership.upsert({
       where: { workspaceId_userId: { workspaceId: workspace.id, userId } },
       update: {},

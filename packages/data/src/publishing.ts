@@ -1,3 +1,4 @@
+import { assertChannelCapacity } from './plans';
 import { Prisma, type PostState, type WorkspaceRole } from '@prisma/client';
 import { prisma } from './client';
 import { findNextPostingSlot } from './next-slot';
@@ -31,6 +32,7 @@ export async function connectChannel(userId: string, slug: string, providerId: P
   return prisma.$transaction(async (tx) => {
     const { workspaceId, role } = await requireScope(tx, userId, slug);
     if (!canManageTeam(role)) throw new WorkspaceAccessError('You cannot connect channels.');
+    await assertChannelCapacity(tx, workspaceId, [{ provider: providerId, externalId: channelId }]);
     await tx.channel.upsert({
       where: { workspaceId_provider_externalId: { workspaceId, provider: providerId, externalId: channelId } },
       create: { workspaceId, provider: providerId, externalId: channelId, ...channel },
@@ -64,6 +66,7 @@ export function listPosts(userId: string, slug: string, scheduledOnly = false, g
         select: { id: true, revision: true, expiresAt: true, revokedAt: true },
       },
       editorialComments: { orderBy: { createdAt: 'asc' }, select: { id: true, action: true, body: true, revision: true } },
+      tags: { include: { tag: true } },
     },
   });
 }

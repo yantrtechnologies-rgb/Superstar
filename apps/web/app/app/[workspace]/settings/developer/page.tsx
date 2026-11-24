@@ -1,6 +1,6 @@
-import { canManageTeam, findMembership, getProvider, metaConfiguration } from '@cadencedesk/data';
+import { canManageTeam, getProvider, metaConfiguration } from '@cadencedesk/data';
 import { notFound } from 'next/navigation';
-import { requireUser } from '../../../../../lib/require-user';
+import { getMembership, requireUser } from '../../../../../lib/require-user';
 
 const definitions = [
   { id: 'facebook', name: 'Facebook & Instagram', env: ['META_APP_ID', 'META_APP_SECRET'], callback: '/api/connect/meta' },
@@ -12,7 +12,7 @@ const definitions = [
 export default async function DeveloperSettings({ params }: { params: Promise<{ workspace: string }> }) {
   const user = await requireUser();
   const { workspace } = await params;
-  const membership = await findMembership(user.id, workspace);
+  const membership = await getMembership(user.id, workspace);
   if (!membership || !canManageTeam(membership.role)) notFound();
   const origin = process.env.APP_URL;
   return (

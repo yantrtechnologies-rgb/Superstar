@@ -22,7 +22,6 @@ Inventory from the brief, with known destination distinctions to verify. Researc
 | Twitch | Supported destination and write operation |
 | VK | User or community wall |
 | Discord | Server text channels. Operator bot grants gate discovery and publishing. [Create Message](https://docs.discord.com/developers/resources/message#create-message) supports the text, attachment and nonce contract. Live test bot evidence pending. |
-| Slack | Operator bot token and workspace channel grant. Text only. Requires channel membership, `chat:write` and applicable conversation read scope. Tested with simulated responses. [Discovery](https://docs.slack.dev/reference/methods/conversations.info/) · [Publish](https://docs.slack.dev/reference/methods/chat.postMessage/) · [Permalink](https://docs.slack.dev/reference/methods/chat.getPermalink/) |
 | Telegram | Operator bot token and workspace grant for a channel or supergroup. Text and single photo, with 1,024-character photo captions. Member-count snapshots use getChatMemberCount. Tested with simulated responses. [Bot API](https://core.telegram.org/bots/api) · [Message links](https://core.telegram.org/api/links#message-links) |
 | Mastodon | Instance URL, OAuth and instance limits |
 | Bluesky | Account authorization, facets and threading |

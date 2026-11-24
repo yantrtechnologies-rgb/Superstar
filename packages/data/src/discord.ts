@@ -17,7 +17,7 @@ export const discord: BotProviderAdapter = {
   imageCaptionLimit: 2000,
   connectionHelp: 'Install the bot with View Channel and Send Messages. Grant Attach Files for image posts.',
   discover: discoverDiscordChannel,
-  publish: sendDiscord,
+  publish: (workspace, channel, nonce, content, image) => sendDiscord(workspace, channel, nonce, content, image),
   reply: (workspace, channel, nonce, content, parentId) => sendDiscord(workspace, channel, nonce, content, undefined, parentId),
 };
 

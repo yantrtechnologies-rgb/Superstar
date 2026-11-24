@@ -1,3 +1,4 @@
+import { assertChannelCapacity } from './plans';
 import { createHash, randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
@@ -34,6 +35,7 @@ async function token(body: URLSearchParams) {
   if (!response) throw new ProviderConfigurationError('YouTube authorization is temporarily unavailable.');
   const value = await response.json().catch(() => ({})) as Record<string, unknown>;
   if (!response.ok || typeof value.access_token !== 'string' || typeof value.expires_in !== 'number') {
+    console.error(JSON.stringify({ event: 'youtube.token_failed', status: response.status, error: value.error, description: value.error_description }));
     throw new ProviderConfigurationError('YouTube did not authorize this connection.');
   }
   return {
@@ -57,8 +59,10 @@ export async function beginYouTubeConnection(userId: string, slug: string) {
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   url.search = new URLSearchParams({
     client_id: config.clientId, redirect_uri: config.callback, response_type: 'code', state,
-    scope: 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly',
-    access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true',
+    // youtube.force-ssl lets the comments inbox read and reply to comments on the channel's videos.
+    scope: 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.force-ssl',
+    // select_account: always show Google's account chooser, so nobody connects the browser's signed-in account by accident.
+    access_type: 'offline', prompt: 'select_account consent', include_granted_scopes: 'true',
   }).toString();
   return url.href;
 }
@@ -69,22 +73,39 @@ export async function completeYouTubeConnection(userId: string, state: string, c
   const grant = await prisma.oAuthState.findFirst({ where, include: { workspace: true } });
   if (!grant || !(await prisma.oAuthState.deleteMany({ where })).count) throw new ProviderConfigurationError('YouTube connection expired.');
   await manager(prisma, userId, grant.workspaceId);
-  if (!code) return { slug: grant.workspace.slug, connected: false };
+  if (!code) return { slug: grant.workspace.slug, connected: false, reason: 'youtube-unavailable' as const };
   const config = settings();
   if (!config) throw new ProviderConfigurationError('YouTube OAuth requires operator configuration.');
-  const tokens = await token(new URLSearchParams({
+  let tokens: Awaited<ReturnType<typeof token>>;
+  try {
+    tokens = await token(new URLSearchParams({
     client_id: config.clientId, client_secret: config.clientSecret, code,
     grant_type: 'authorization_code', redirect_uri: config.callback,
-  }));
+    }));
+  } catch (error) {
+    if (error instanceof ProviderConfigurationError) return { slug: grant.workspace.slug, connected: false, reason: 'youtube-unavailable' as const };
+    throw error;
+  }
   const response = await fetch('https://www.googleapis.com/youtube/v3/channels?part=id,snippet&mine=true', {
     headers: { Authorization: `Bearer ${tokens.access}` }, redirect: 'error', signal: AbortSignal.timeout(10_000),
-  });
-  const profile = z.object({ items: z.array(z.object({ id: z.string(), snippet: z.object({ title: z.string() }) })).min(1) })
-    .safeParse(await response.json().catch(() => ({})));
-  if (!response.ok || !profile.success) throw new ProviderConfigurationError('YouTube did not return an authorized channel.');
+  }).catch(() => null);
+  if (!response) return { slug: grant.workspace.slug, connected: false, reason: 'youtube-unavailable' as const };
+  const raw: unknown = await response.json().catch(() => ({}));
+  const listed = z.object({ items: z.array(z.object({ id: z.string(), snippet: z.object({ title: z.string() }) })).optional() })
+    .safeParse(raw);
+  if (!response.ok || !listed.success) {
+    const body = raw as { error?: { message?: string; errors?: { reason?: string }[] } };
+    const reason = body.error?.errors?.[0]?.reason;
+    console.error(JSON.stringify({ event: 'youtube.channel_lookup_failed', status: response.status, reason, message: body.error?.message }));
+    if (reason === 'youtubeSignupRequired') return { slug: grant.workspace.slug, connected: false, reason: 'youtube-no-channel' as const };
+    return { slug: grant.workspace.slug, connected: false, reason: 'youtube-unavailable' as const };
+  }
+  if (!listed.data.items?.length) return { slug: grant.workspace.slug, connected: false, reason: 'youtube-no-channel' as const };
+  const profile = { data: { items: listed.data.items } };
   const account = profile.data.items[0]!;
   await prisma.$transaction(async (tx) => {
     await manager(tx, userId, grant.workspaceId);
+    await assertChannelCapacity(tx, grant.workspaceId, [{ provider, externalId: account.id }]);
     const channel = await tx.channel.upsert({
       where: { workspaceId_provider_externalId: { workspaceId: grant.workspaceId, provider, externalId: account.id } },
       create: { workspaceId: grant.workspaceId, provider, externalId: account.id, name: account.snippet.title },
@@ -99,10 +120,10 @@ export async function completeYouTubeConnection(userId: string, state: string, c
     await tx.providerCredential.upsert({ where: { channelId: channel.id }, create: { channelId: channel.id, ...values }, update: values });
     await tx.auditEvent.create({ data: { workspaceId: grant.workspaceId, actorId: userId, subjectId: channel.id, action: 'channel.oauth_connected' } });
   });
-  return { slug: grant.workspace.slug, connected: true };
+  return { slug: grant.workspace.slug, connected: true, reason: 'saved' as const };
 }
 
-async function access(channelId: string, workspaceId: string) {
+export async function youtubeAccess(channelId: string, workspaceId: string) {
   const current = await prisma.providerCredential.findFirst({ where: { channelId, channel: { workspaceId, provider } } });
   if (!current || current.revokedAt) return null;
   const base = binding(workspaceId, channelId);
@@ -136,7 +157,7 @@ export const youtube: OAuthProviderAdapter = {
   connectionHelp: 'Connect a YouTube channel to upload MP4 videos. Uploads default to private unless the operator changes the configured privacy status.',
   async publish(_workspace, channel, _nonce, content, media) {
     if (!media || media.type !== 'video/mp4') return { kind: 'failed', error: 'YouTube requires an MP4 video.' };
-    const authorization = await access(channel.id, channel.workspaceId);
+    const authorization = await youtubeAccess(channel.id, channel.workspaceId);
     if (!authorization) return { kind: 'failed', error: 'Reconnect the YouTube channel.' };
     const [first = 'Untitled video', ...rest] = content.split('\n');
     const privacy = z.enum(['private', 'unlisted', 'public']).catch('private').parse(process.env.YOUTUBE_DEFAULT_PRIVACY_STATUS);

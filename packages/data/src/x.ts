@@ -1,8 +1,9 @@
+import { assertChannelCapacity } from './plans';
 import { createHash, randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from './client';
-import { type OAuthProviderAdapter, ProviderConfigurationError, retryAfter } from './provider-contract';
+import { type OAuthProviderAdapter, ProviderConfigurationError, retryAfter, type PublishResult } from './provider-contract';
 import { openToken, sealToken, vaultConfigured } from './token-vault';
 import { canManageTeam, WorkspaceAccessError } from './workspaces';
 
@@ -53,7 +54,7 @@ export async function beginXConnection(userId: string, slug: string) {
   const url = new URL('https://x.com/i/oauth2/authorize');
   url.search = new URLSearchParams({
     response_type: 'code', client_id: config.clientId, redirect_uri: config.callback, state,
-    scope: 'tweet.read tweet.write users.read offline.access', code_challenge_method: 'S256',
+    scope: 'tweet.read tweet.write users.read media.write offline.access', code_challenge_method: 'S256',
     code_challenge: createHash('sha256').update(verifier).digest('base64url'),
   }).toString();
   return url.href;
@@ -79,6 +80,7 @@ export async function completeXConnection(userId: string, state: string, code?: 
   await prisma.$transaction(async (tx) => {
     await manager(tx, userId, grant.workspaceId);
     const account = profile.data.data;
+    await assertChannelCapacity(tx, grant.workspaceId, [{ provider, externalId: account.id }]);
     const channel = await tx.channel.upsert({
       where: { workspaceId_provider_externalId: { workspaceId: grant.workspaceId, provider, externalId: account.id } },
       create: { workspaceId: grant.workspaceId, provider, externalId: account.id, name: `@${account.username}` },
@@ -122,21 +124,123 @@ export async function disconnectX(userId: string, slug: string, channelId: strin
   });
 }
 export const x: OAuthProviderAdapter = {
-  kind: 'oauth', name: 'X account', textLimit: 280, imageCaptionLimit: null,
-  connectionHelp: 'Connect an X account with OAuth 2.0 to publish text posts.', configured: xConfigured,
-  async publish(_workspace, channel, _nonce, content, media) {
-    if (media) return { kind: 'failed', error: 'This X connector currently supports text posts only.' };
+  // Normal X accounts get 280 characters; X Premium accounts up to 25,000. Longer text is tried whole, then threaded.
+  kind: 'oauth', name: 'X account', textLimit: 280, imageCaptionLimit: 280,
+  // X allows up to 4 photos per post.
+  maxImages: 4,
+  splitsLongText: true,
+  connectionHelp: 'Connect an X account with OAuth 2.0 to publish text and photo posts.', configured: xConfigured,
+  async publish(_workspace, channel, _nonce, content, image, images) {
+    const photos = (images ?? (image ? [image] : [])).filter((item) => item.type.startsWith('image/')).slice(0, 4);
+    let media: { media_ids: string[] } | undefined;
+    if (photos.length) {
+      const uploaded = await uploadPhotos(channel, photos);
+      if (!Array.isArray(uploaded)) return uploaded;
+      media = { media_ids: uploaded };
+    }
+    const text = content.trim();
+    if (xLength(text) > 280) {
+      // Accounts with X Premium may post up to 25,000 characters in one post; X refuses it for everyone else.
+      const whole = await postTweet(channel, { text, ...(media && { media }) }, { lengthFallback: true });
+      if (whole !== 'too-long') return whole;
+    }
+    const [first, ...rest] = splitForX(text);
+    const opening = await postTweet(channel, { text: first, ...(media && { media }) });
+    if (opening.kind !== 'published' || !rest.length) return opening;
+    // The rest of a long post follows as replies, so readers see one numbered thread.
+    let parent = opening.externalId;
+    for (const part of rest) {
+      const next = await postTweet(channel, { text: part, reply: { in_reply_to_tweet_id: parent } });
+      if (next.kind !== 'published') break; // The opening post is live; the thread just ends early.
+      parent = next.externalId;
+    }
+    return opening;
+  },
+  reply: (_workspace, channel, _nonce, content, parentId) => postTweet(channel, { text: content, reply: { in_reply_to_tweet_id: parentId } }),
+};
+
+/** X's character weighting: most Latin text counts 1, emoji and CJK count 2, every link counts 23. */
+function xLength(text: string) {
+  let total = 0;
+  for (const piece of text.split(/(https?:\/\/\S+)/)) {
+    if (/^https?:\/\//.test(piece)) { total += 23; continue; }
+    for (const char of piece) {
+      const code = char.codePointAt(0)!;
+      total += code <= 4351 || (code >= 8192 && code <= 8205) || (code >= 8208 && code <= 8223) || (code >= 8242 && code <= 8247) ? 1 : 2;
+    }
+  }
+  return total;
+}
+
+/** Splits text into posts of at most 280 weighted characters, breaking between words and numbering each part. */
+export function splitForX(content: string, limit = 280): string[] {
+  const text = content.trim();
+  if (xLength(text) <= limit) return [text];
+  const budget = limit - 8; // room for " (10/12)"
+  const words = text.match(/\S+\s*/g) ?? [];
+  const parts: string[] = [];
+  let current = '';
+  for (const word of words) {
+    if (current && xLength((current + word).trimEnd()) > budget) { parts.push(current.trimEnd()); current = ''; }
+    let piece = word;
+    while (xLength(piece.trimEnd()) > budget) { // a single very long word
+      let cut = budget;
+      while (xLength(piece.slice(0, cut)) > budget) cut--;
+      parts.push(piece.slice(0, cut)); piece = piece.slice(cut);
+    }
+    current += piece;
+  }
+  if (current.trim()) parts.push(current.trimEnd());
+  return parts.map((part, index) => `${part} (${index + 1}/${parts.length})`);
+}
+
+async function uploadPhotos(channel: { id: string; workspaceId: string }, photos: { bytes: Uint8Array<ArrayBuffer>; type: string }[]): Promise<string[] | PublishResult> {
+    const authorization = await access(channel.id, channel.workspaceId);
+    if (!authorization) return { kind: 'failed', error: 'Reconnect the X account.' };
+    const mediaIds: string[] = [];
+    for (const [index, photo] of photos.entries()) {
+      const form = new FormData();
+      form.set('media', new Blob([photo.bytes], { type: photo.type }), `image-${index}.${photo.type === 'image/png' ? 'png' : 'jpg'}`);
+      form.set('media_category', 'tweet_image');
+      const response = await fetch('https://api.x.com/2/media/upload', {
+        method: 'POST', body: form, redirect: 'error', signal: AbortSignal.timeout(30_000),
+        headers: { Authorization: `Bearer ${authorization}` },
+      }).catch(() => null);
+      if (!response) return { kind: 'failed', error: 'X did not confirm a photo upload; nothing was posted.' };
+      if (response.status === 401 || response.status === 403) {
+        return { kind: 'failed', error: 'X refused the photo upload. Reconnect the X account on the Channels page so it can upload photos, then try again.' };
+      }
+      if (response.status === 402) return { kind: 'failed', error: creditsMessage };
+      if (response.status === 429) return retryAfter(Number(response.headers.get('Retry-After')));
+      const json = await response.json().catch(() => ({}));
+      const uploaded = z.object({ data: z.object({ id: z.string().min(1) }) }).safeParse(json);
+      const legacy = z.object({ media_id_string: z.string().min(1) }).safeParse(json);
+      const id = uploaded.data?.data.id ?? legacy.data?.media_id_string;
+      if (!response.ok || !id) return { kind: 'failed', error: 'X rejected one of the photos; nothing was posted.' };
+      mediaIds.push(id);
+    }
+    return mediaIds;
+}
+
+const creditsMessage = 'X refused the post because the X developer account has no API credit. Add credit at console.x.com (Billing), then post again.';
+
+type XChannel = { id: string; workspaceId: string };
+async function postTweet(channel: XChannel, body: Record<string, unknown>): Promise<PublishResult>;
+async function postTweet(channel: XChannel, body: Record<string, unknown>, options: { lengthFallback: true }): Promise<PublishResult | 'too-long'>;
+async function postTweet(channel: XChannel, body: Record<string, unknown>, options?: { lengthFallback: true }): Promise<PublishResult | 'too-long'> {
     const authorization = await access(channel.id, channel.workspaceId);
     if (!authorization) return { kind: 'failed', error: 'Reconnect the X account.' };
     const response = await fetch('https://api.x.com/2/tweets', {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15_000),
-      headers: { Authorization: `Bearer ${authorization}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ text: content }),
+      headers: { Authorization: `Bearer ${authorization}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     }).catch(() => null);
     if (!response) return { kind: 'uncertain', error: 'X did not confirm the post. Check the account before retrying.' };
+    // X refuses long text from accounts without Premium (400 or 403); the caller then posts a thread instead.
+    if (options?.lengthFallback && (response.status === 400 || response.status === 403)) return 'too-long';
     if (response.status === 401 || response.status === 403) return { kind: 'failed', error: 'X denied publishing access. Reconnect the account.' };
+    if (response.status === 402) return { kind: 'failed', error: creditsMessage };
     if (response.status === 429) return retryAfter(Number(response.headers.get('Retry-After')));
     const result = z.object({ data: z.object({ id: z.string() }) }).safeParse(await response.json().catch(() => ({})));
     if (!response.ok || !result.success) return { kind: 'failed', error: 'X rejected the post.' };
     return { kind: 'published', externalId: result.data.data.id, permalink: `https://x.com/i/web/status/${result.data.data.id}` };
-  },
-};
+}

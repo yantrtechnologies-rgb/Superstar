@@ -1,9 +1,15 @@
 'use server';
 
-import { acceptInvitation, createWorkspace, inviteMember, ownerInvitationRoles, WorkspaceAccessError } from '@cadencedesk/data';
+import {
+  acceptInvitation, createWorkspace, inviteMember, ownerInvitationRoles, PasswordLoginError, passwordSchema, setUserPassword,
+  WorkspaceAccessError,
+  PlanLimitError,
+} from '@cadencedesk/data';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { signOut } from '../../auth';
+import { chosenPlanCookie, readChosenPlan } from '../../lib/chosen-plan';
 import { emailConfig } from '../../lib/auth-config';
 import { deliverEmail } from '../../lib/mail';
 import { requireUser } from '../../lib/require-user';
@@ -31,6 +37,12 @@ export async function createWorkspaceAction(form: FormData) {
   const connecting = form.get('intent') === 'channels';
   if (!fields.success) redirect(connecting ? '/app?status=invalid-workspace&intent=channels' : '/app?status=invalid-workspace');
   const workspace = await createWorkspace(user.id, fields.data.name, fields.data.timeZone);
+  // A plan chosen on the pricing page continues straight to its payment step.
+  const plan = await readChosenPlan();
+  if (plan && !connecting) {
+    (await cookies()).delete(chosenPlanCookie);
+    redirect(`/app/${workspace.slug}/billing?plan=${plan}`);
+  }
   redirect(`/app/${workspace.slug}${connecting ? '/channels' : ''}`);
 }
 
@@ -46,6 +58,7 @@ export async function inviteMemberAction(form: FormData) {
   try {
     workspaceName = await inviteMember(user.id, slug, email, role);
   } catch (error) {
+    if (error instanceof PlanLimitError) redirect(`${settings}?status=seat-limit`);
     if (error instanceof WorkspaceAccessError) redirect(`${settings}?status=invitation-unavailable`);
     throw error;
   }
@@ -72,6 +85,7 @@ export async function acceptInvitationAction(form: FormData) {
   try {
     workspace = await acceptInvitation(user.id, invitationId.data);
   } catch (error) {
+    if (error instanceof PlanLimitError) redirect('/app?status=seat-limit');
     if (error instanceof WorkspaceAccessError) redirect('/app?status=invitation-unavailable');
     throw error;
   }
@@ -81,3 +95,18 @@ export async function acceptInvitationAction(form: FormData) {
 export async function logoutAction() {
   await signOut({ redirectTo: '/' });
 }
+
+export async function setPasswordAction(form: FormData) {
+  const user = await requireUser();
+  const password = passwordSchema.safeParse(form.get('password'));
+  if (!password.success) redirect('/app?status=password-weak');
+  if (form.get('password') !== form.get('confirm')) redirect('/app?status=password-mismatch');
+  try {
+    await setUserPassword(user.id, password.data, String(form.get('current') ?? '') || undefined);
+  } catch (error) {
+    if (error instanceof PasswordLoginError) redirect('/app?status=password-current');
+    throw error;
+  }
+  redirect('/app?status=password-saved');
+}
+

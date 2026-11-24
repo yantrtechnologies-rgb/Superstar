@@ -287,57 +287,9 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
   }
 });
 
-test('Slack validates capabilities and retains a confirmed write when link lookup fails', async () => {
-  const { providers, validateProviderPost, ProviderConfigurationError } = await import('@cadencedesk/data');
-  const channelId = 'C000000001';
-  const workspace = 'slack-test-fixture';
-  process.env.SLACK_BOT_TOKEN = 'fixture-slack';
-  process.env.SLACK_WORKSPACE_CHANNELS = JSON.stringify({ [workspace]: [channelId] });
-  const originalFetch = globalThis.fetch;
-  let linkFails = false;
-  let writes = 0;
-  globalThis.fetch = async (input, init) => {
-    const url = new URL(input);
-    assert.equal(url.origin, 'https://slack.com');
-    assert.equal(init.headers.Authorization, 'Bearer fixture-slack');
-    if (url.pathname.endsWith('conversations.info')) {
-      assert.equal(url.searchParams.get('channel'), channelId);
-      return Response.json({ ok: true, channel: { id: channelId, name: 'updates', is_member: true } });
-    }
-    if (url.pathname.endsWith('chat.postMessage')) {
-      assert.equal(init.method, 'POST');
-      const body = JSON.parse(init.body);
-      assert.equal(body.channel, channelId);
-      assert.equal(body.text, 'A &amp; B &lt; C');
-      assert.equal(body.mrkdwn, false);
-      writes++;
-      return Response.json({ ok: true, channel: channelId, ts: '1234567890.123456' });
-    }
-    assert.ok(url.pathname.endsWith('chat.getPermalink'));
-    assert.equal(url.searchParams.get('channel'), channelId);
-    assert.equal(url.searchParams.get('message_ts'), '1234567890.123456');
-    if (linkFails) return new Response(null, { status: 503 });
-    return Response.json({ ok: true, permalink: 'https://example.slack.com/archives/C000000001/p1234567890123456' });
-  };
-  try {
-    assert.throws(() => validateProviderPost('slack', 'Attachment', 'image/png'), ProviderConfigurationError);
-    assert.throws(() => validateProviderPost('telegram', 'a'.repeat(1025), 'image/png'), ProviderConfigurationError);
-    await assert.rejects(providers.slack.discover('another-tenant', channelId), ProviderConfigurationError);
-    assert.deepEqual(await providers.slack.discover(workspace, channelId), { name: 'updates' });
-    const channel = { externalId: channelId, guildId: null };
-    const result = await providers.slack.publish(workspace, channel, 'nonce', 'A & B < C');
-    assert.deepEqual(result, {
-      kind: 'published', externalId: '1234567890.123456',
-      permalink: 'https://example.slack.com/archives/C000000001/p1234567890123456',
-    });
-    linkFails = true;
-    assert.deepEqual(await providers.slack.publish(workspace, channel, 'new-nonce', 'A & B < C'), {
-      kind: 'published', externalId: '1234567890.123456', permalink: null,
-    });
-    assert.equal(writes, 2);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+test('Telegram limits image captions', async () => {
+  const { validateProviderPost, ProviderConfigurationError } = await import('@cadencedesk/data');
+  assert.throws(() => validateProviderPost('telegram', 'a'.repeat(1025), 'image/png'), ProviderConfigurationError);
 });
 
 test('LinkedIn OAuth binds one-time state to its actor and refreshes encrypted credentials once', async () => {

@@ -1,4 +1,4 @@
-export const providerIds = ['discord', 'telegram', 'slack', 'linkedin', 'facebook', 'instagram', 'youtube', 'x'] as const;
+export const providerIds = ['discord', 'telegram', 'linkedin', 'facebook', 'instagram', 'youtube', 'x'] as const;
 export type ProviderId = (typeof providerIds)[number];
 
 export class ProviderConfigurationError extends Error {}
@@ -18,11 +18,16 @@ type PublishingProvider = {
   requiresImage?: boolean;
   requiresVideo?: boolean;
   acceptsVideo?: boolean;
+  /** Most images one post can carry; providers without it publish only the first image. */
+  maxImages?: number;
+  /** Text over the limit is published as a numbered thread instead of being rejected. */
+  splitsLongText?: boolean;
   connectionHelp: string;
   publish(
     workspace: string, channel: PublishChannel,
-    nonce: string, content: string, image?: PublishingImage,
+    nonce: string, content: string, image?: PublishingImage, images?: PublishingImage[],
   ): Promise<PublishResult>;
+  /** Publishes a follow-up as a reply/comment/thread item under parentId. Absent = no thread support. */
   reply?(workspace: string, channel: PublishChannel, nonce: string, content: string, parentId: string): Promise<PublishResult>;
 };
 

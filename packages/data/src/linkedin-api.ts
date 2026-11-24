@@ -20,8 +20,18 @@ function marketingHeaders(access: string) {
   };
 }
 
-function settings() {
-  const { APP_URL, LINKEDIN_CLIENT_ID: clientId, LINKEDIN_CLIENT_SECRET: clientSecret } = process.env;
+/**
+ * 'member' connects the person's profile with the main LinkedIn app. 'pages' connects company pages the person
+ * administers, through a separate app approved for LinkedIn's Community Management API
+ * (LINKEDIN_PAGES_CLIENT_ID / LINKEDIN_PAGES_CLIENT_SECRET).
+ */
+export type LinkedInMode = 'member' | 'pages';
+const pageScopes = ['r_organization_admin', 'w_organization_social'];
+
+function settings(mode: LinkedInMode = 'member') {
+  const { APP_URL } = process.env;
+  const clientId = mode === 'pages' ? process.env.LINKEDIN_PAGES_CLIENT_ID : process.env.LINKEDIN_CLIENT_ID;
+  const clientSecret = mode === 'pages' ? process.env.LINKEDIN_PAGES_CLIENT_SECRET : process.env.LINKEDIN_CLIENT_SECRET;
   if (!APP_URL || !clientId || !clientSecret || !vaultConfigured()) return null;
   try {
     const origin = new URL(APP_URL);
@@ -37,13 +47,17 @@ export function linkedInConfigured() {
   return Boolean(settings());
 }
 
-export function linkedInAuthorization(state: string) {
-  const config = settings();
+export function linkedInPagesConfigured() {
+  return Boolean(settings('pages'));
+}
+
+export function linkedInAuthorization(state: string, mode: LinkedInMode = 'member') {
+  const config = settings(mode);
   if (!config) throw new ProviderConfigurationError('LinkedIn OAuth requires operator configuration.');
   const url = new URL('https://www.linkedin.com/oauth/v2/authorization');
   url.search = new URLSearchParams({
     response_type: 'code', client_id: config.clientId, redirect_uri: config.callback,
-    state, scope: scopes().join(' '),
+    state, scope: (mode === 'pages' ? pageScopes : scopes()).join(' '),
   }).toString();
   return url.href;
 }
@@ -58,8 +72,8 @@ export type LinkedInTokens = {
   refreshExpiresAt?: Date;
 };
 
-export async function linkedInTokens(grant: { code: string } | { refresh: string }): Promise<LinkedInTokens> {
-  const config = settings();
+export async function linkedInTokens(grant: { code: string } | { refresh: string }, mode: LinkedInMode = 'member'): Promise<LinkedInTokens> {
+  const config = settings(mode);
   if (!config) throw new ProviderConfigurationError('LinkedIn OAuth requires operator configuration.');
   const body = new URLSearchParams({
     client_id: config.clientId, client_secret: config.clientSecret,
@@ -83,7 +97,7 @@ export async function linkedInTokens(grant: { code: string } | { refresh: string
     }
     if (value.scope) {
       const granted = value.scope.split(/[ ,]+/);
-      if (!granted.includes('w_member_social')) {
+      if (!granted.includes(mode === 'pages' ? 'w_organization_social' : 'w_member_social')) {
         throw new LinkedInAuthorizationError('Grant LinkedIn publishing permission when you reconnect.');
       }
     }
@@ -122,7 +136,32 @@ export async function linkedInMember(access: string) {
 
 type LinkedInDestination = { externalId: string; name: string };
 
-export async function linkedInDestinations(access: string): Promise<LinkedInDestination[]> {
+/** Company pages the authorized member administers (needs r_organization_admin). */
+export async function linkedInOrganizations(access: string): Promise<LinkedInDestination[]> {
+  const destinations: LinkedInDestination[] = [];
+  const url = new URL('https://api.linkedin.com/rest/organizationAcls');
+  url.search = new URLSearchParams({ q: 'roleAssignee', role: 'ADMINISTRATOR', state: 'APPROVED', count: '100' }).toString();
+  const response = await fetch(url, { headers: marketingHeaders(access), redirect: 'error', signal: AbortSignal.timeout(8000) });
+  if (!response.ok) throw new LinkedInAuthorizationError('LinkedIn did not share your company pages. Reconnect and allow page access.');
+  const value = await response.json() as { elements?: Array<{ organization?: string }> };
+  const ids = [...new Set((value.elements ?? []).map((item) =>
+    /^urn:li:organization:(\d+)$/.exec(item.organization ?? '')?.[1]).filter((id): id is string => Boolean(id)))];
+  for (const id of ids) {
+    let name = `LinkedIn Page ${id}`;
+    const organization = await fetch(`https://api.linkedin.com/rest/organizations/${id}`, {
+      headers: marketingHeaders(access), redirect: 'error', signal: AbortSignal.timeout(8000),
+    }).catch(() => null);
+    if (organization?.ok) {
+      const details = await organization.json() as { localizedName?: string };
+      if (typeof details.localizedName === 'string' && details.localizedName.trim()) name = details.localizedName.trim().slice(0, 200);
+    }
+    destinations.push({ externalId: `organization:${id}`, name });
+  }
+  return destinations;
+}
+
+export async function linkedInDestinations(access: string, mode: LinkedInMode = 'member'): Promise<LinkedInDestination[]> {
+  if (mode === 'pages') return linkedInOrganizations(access);
   const member = await linkedInMember(access);
   const destinations: LinkedInDestination[] = [{ externalId: `person:${member.externalId}`, name: member.name }];
   if (!organizationEnabled()) return destinations;
@@ -147,6 +186,11 @@ export async function linkedInDestinations(access: string): Promise<LinkedInDest
     }
   } catch {
     // A member profile remains usable when organization discovery is unavailable or not approved.
+  }
+  // LINKEDIN_PAGES_ONLY=true: connect only the company pages the member administers, not their personal profile
+  // (the profile is kept only when no page was found, so the connection never ends up empty).
+  if (process.env.LINKEDIN_PAGES_ONLY === 'true' && destinations.some((d) => d.externalId.startsWith('organization:'))) {
+    return destinations.filter((d) => d.externalId.startsWith('organization:'));
   }
   return destinations;
 }

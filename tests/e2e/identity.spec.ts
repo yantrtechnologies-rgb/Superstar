@@ -63,6 +63,7 @@ test('magic link, invitations, workspace switching, and tenant isolation', async
     await expect(client.getByText('Private Editorial')).toHaveCount(0);
 
     await client.goto(studio);
+    await client.getByText('Account menu').or(client.getByLabel('Account menu')).first().click();
     await client.getByRole('button', { name: 'Sign out' }).click();
     await expect(client).toHaveURL('/');
     await client.goto(studio);
@@ -521,7 +522,7 @@ test('the public landing and workspace navigation fit desktop and mobile', async
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'A workspace for social campaigns' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Plan, approve and publish every social post from one calendar' })).toBeVisible();
     await expect(page.getByRole('list', { name: 'Sample campaign agenda' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
   }

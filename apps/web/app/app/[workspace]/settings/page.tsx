@@ -9,6 +9,7 @@ const messages: Record<string, string> = {
   'email-unavailable': 'Email delivery requires operator configuration.',
   'email-failed': 'The invitation is active, but email delivery failed. Submit it again to retry.',
   'invitation-unavailable': 'Check your permissions and whether this person is already a member.',
+  'seat-limit': 'Your plan has no free team member seats (pending invitations count too). Upgrade on the Billing page to invite more people.',
 };
 
 export default async function TeamSettings({ params, searchParams }: {

@@ -17,6 +17,27 @@ With Docker and Compose installed, run `docker compose up --build`. Compose star
 
 Object storage and Redis are provisioned for later features. Create the configured bucket before implementing media uploads. Phase 2 introduces account access.
 
+## Windows local stack without Docker
+
+After `pnpm install --frozen-lockfile`, `pnpm db:generate` and `pnpm build`, run `powershell -ExecutionPolicy Bypass -File scripts\start-local.ps1` from the repository root. It starts PostgreSQL from `.local-postgres-test` on port 55433, a Temporal dev server, the worker, the API and the web app, and opens a Cloudflare quick tunnel for OAuth callbacks. Secrets are read from `apps/web/.env.local` and an optional root `.env.local-stack`. Without `RESEND_API_KEY`, sign-in links are written to `.local-preview-mail.jsonl`. A quick tunnel gets a new address on every start, so the provider redirect URLs must be updated each time. Pass `-PublicUrl https://your-domain` with a named Cloudflare tunnel to keep them stable.
+
+## Amazon RDS and S3 (local stack)
+
+The Windows local stack can use AWS instead of the local database and file store. Put these in `.env.local-stack`:
+
+- `DATABASE_URL=postgresql://USER:PASSWORD@HOST.rds.amazonaws.com:5432/DB?sslmode=require`. When the host is not `localhost`, `scripts\start-local.ps1` skips the local PostgreSQL and `scripts\migrate-local-db.ps1` runs `prisma migrate deploy` against the remote database.
+- `OBJECT_STORAGE_PROVIDER=aws`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_REGION` and `AWS_PROFILE`. With no `OBJECT_STORAGE_ENDPOINT` and no static keys, uploads use Amazon S3 with the SDK default credential chain, so an `aws login --profile <name>` session works without access keys. Run `aws login` again when the session can no longer renew (90 days).
+
+The RDS security group allows only the developer's public IP. Update its inbound rule if that address changes.
+
+## Email and password sign-in
+
+Besides one-time email links, people can create an account at `/signup` and sign in with an email and password. Passwords are stored as scrypt hashes. Five wrong attempts lock an account for 15 minutes. A password sign-up does not verify the email address, so accepting a workspace invitation still needs one email-link sign-in. Signed-in users set or change their password on the workspace list page. Operators can set one from the command line: `node scripts/set-password.mjs <email> --generate` writes a new random password to `.local-admin-login.txt` (git-ignored).
+
+## Stopping the AWS database when idle
+
+`infra/db-idle-stop` deploys a small Lambda function and a 15-minute EventBridge Scheduler schedule (`bash infra/db-idle-stop/deploy.sh`). It stops the RDS instance after 45 minutes with no client connections, and stops it again if AWS restarts it after 7 days. With `RDS_INSTANCE_ID` and `RDS_REGION` in `.env.local-stack`, `scripts\start-local.ps1` starts a stopped instance and waits for it (5-10 minutes). `scriptsws-db.ps1 status|start|stop` controls it by hand.
+
 ## Development checks
 
 Use Node.js 22.12 or later and pnpm 10.10.
@@ -50,10 +71,9 @@ To run the identity browser test, configure `DATABASE_URL` for a dedicated test 
 
 To run the publishing integration test, apply migrations to a dedicated database, run `pnpm build`, then run `node --test apps/worker/test/publishing.integration.mjs` with that database URL. The test starts a local Temporal server and intercepts Discord and storage requests.
 
-## Telegram and Slack
+## Telegram
 
 - Telegram uses `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WORKSPACE_CHATS`. Add the bot to the target channel as an administrator with posting rights, or to a supergroup where it can send messages and photos. Map the workspace slug to a list of numeric channel or supergroup IDs as strings. The composer supports text and a single image with a caption. [Telegram Bot API](https://core.telegram.org/bots/api)
-- Slack uses `SLACK_BOT_TOKEN` and `SLACK_WORKSPACE_CHANNELS`. Install a bot with `chat:write` and the applicable `channels:read` or `groups:read` scope, invite it into the channel, then grant the channel ID to the workspace. The composer supports text. If Slack confirms delivery but cannot return a permalink, Superstar keeps the published timestamp. [Slack publishing](https://docs.slack.dev/reference/methods/chat.postMessage/) · [Slack discovery](https://docs.slack.dev/reference/methods/conversations.info/)
 - Restart the web and worker with the updated environment, then connect or refresh the destination in Channels. Grants are rechecked when a scheduled post runs.
 
 ## LinkedIn member publishing
@@ -162,13 +182,19 @@ Workspace owners and admins can open **Usage and billing** for counts and the la
 
 For hosted billing tests, set `APP_MODE=hosted`, a Stripe test secret key in `STRIPE_SECRET_KEY`, a test endpoint secret in `STRIPE_WEBHOOK_SECRET`, and one or more recurring `STRIPE_PRICE_<PLAN>_<INTERVAL>` IDs from `.env.example`. Configure the Stripe Customer Portal in the same test account. Open **Usage and billing** to start Checkout. Forward Stripe snapshot events to `/api/stripe/webhook`, including `checkout.session.completed` and subscription created, updated and deleted. The webhook verifies the raw body, records event IDs, and retrieves the current subscription from Stripe. [Stripe Checkout](https://docs.stripe.com/api/checkout/sessions/create) · [Stripe webhooks](https://docs.stripe.com/webhooks)
 
+## Razorpay subscriptions
+
+Razorpay works alongside Stripe on **Usage and billing**. Set `APP_MODE=hosted`, `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` (Dashboard → Account & Settings → API keys) and `RAZORPAY_WEBHOOK_SECRET`. Create one Razorpay Plan per paid plan and interval (Dashboard → Subscriptions → Plans) and set its ID in `RAZORPAY_PLAN_<PLAN>_<INTERVAL>`, for example `RAZORPAY_PLAN_TEAM_MONTHLY=plan_Abc123`. Add a webhook to `APP_URL/api/razorpay/webhook` with the same secret and the `subscription.*` events (authenticated, activated, charged, pending, halted, paused, resumed, cancelled, completed, updated).
+
+Owners and admins choose a plan and are sent to Razorpay's hosted subscription page. The webhook verifies `X-Razorpay-Signature` over the raw body, ignores repeated `x-razorpay-event-id` values and re-reads the subscription from Razorpay before saving its status. **Cancel at end of billing cycle** cancels through the API. Test keys (`rzp_test_`) work immediately; live keys (`rzp_live_`) also require `RAZORPAY_ALLOW_LIVE=true` and an HTTPS `APP_URL`. Apply the database migration with `pnpm db:migrate` after updating.
+
 ## Facebook Pages and Instagram connections
 
 Set `META_APP_ID`, `META_APP_SECRET`, `META_GRAPH_VERSION` and `TOKEN_ENCRYPTION_KEY` in the web environment. Register `APP_URL/api/connect/meta` as an exact valid OAuth redirect URI in your Meta app. Use HTTPS for a deployed site and verify Meta's permitted local development URL settings. Keep the app secret on the server.
 
 Workspace owners and admins select **Continue with Facebook** in Channels, authorize Meta, and choose the returned accounts to save. Facebook connects managed Pages. Instagram connects professional accounts linked to those Pages through Facebook Login. Each saved Page or account belongs to the selected workspace. Disconnect removes its stored credential while preserving history.
 
-Connection scopes are `pages_show_list` and `pages_read_engagement`, plus `instagram_basic` for Instagram. External users require the corresponding Meta app permissions and review/access level. Development-mode testing uses eligible app-role accounts. Publishing permissions and publishing adapters for these two connectors remain pending.
+Facebook requests `pages_show_list`, `pages_read_engagement` and `pages_manage_posts`. Instagram requests `pages_show_list`, `pages_read_engagement`, `instagram_basic` and `instagram_content_publish`. The worker publishes text or a single image to a Page, and a single image with a caption to Instagram. Instagram fetches the image from `APP_URL/api/media/meta/...`, so `APP_URL` must be a public HTTPS address. External users require the corresponding Meta app permissions and review/access level. Development-mode testing uses eligible app-role accounts.
 
 The callback consumes actor-bound OAuth state once. Account selections expire after ten minutes, contain encrypted server-side credentials and can be saved once. Reconnect after expiration or revoked authorization. Configure real app credentials and test one Page and one linked Instagram professional account before marking these connectors live-verified. [Meta manual login flow](https://developers.facebook.com/documentation/facebook-login/guides/advanced/manual-flow) · [Meta Instagram API collection](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api)
 

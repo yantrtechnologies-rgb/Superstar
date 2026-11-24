@@ -17,7 +17,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ wor
         'Cache-Control': 'private, no-store',
         'Content-Type': asset.type,
         'X-Content-Type-Options': 'nosniff',
-        'Content-Disposition': `attachment; filename="cadencedesk-${video ? 'video' : 'image'}.${extension}"`,
+        'Content-Disposition': `attachment; filename="superstar-${video ? 'video' : 'image'}.${extension}"`,
       },
     });
   } catch (error) {

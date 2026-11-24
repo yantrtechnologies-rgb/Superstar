@@ -5,7 +5,7 @@ import { prisma } from './client';
 import { canWritePosts } from './publishing';
 import { WorkspaceAccessError } from './workspaces';
 
-export const aiKinds = ['TEXT', 'IMAGE'] as const;
+export const aiKinds = ['TEXT', 'IMAGE', 'VIDEO'] as const;
 export class AiUnavailableError extends Error {}
 export class CreditBalanceError extends Error {}
 export class QuoteChangedError extends Error {}
@@ -19,8 +19,37 @@ export function clippingConfigured() {
   return process.env.MEDIA_CLIPPING_ENABLED === 'true' && assetStorageConfigured();
 }
 
+/**
+ * Google Gemini (GEMINI_API_KEY) is preferred: one key covers writing, images, video and transcripts, billed by
+ * Google after use. Each job costs a fixed number of credits that customers buy in advance, so the price of a
+ * credit pack minus Google's cost is the operator's margin. Models and credit costs can be overridden in settings.
+ */
+export const geminiDefaults = {
+  TEXT: { model: 'gemini-3.5-flash-lite', credits: 1 },
+  IMAGE: { model: 'gemini-3.1-flash-lite-image', credits: 4 },
+  VIDEO: { model: 'gemini-omni-1.2-flash', credits: 75 },
+  TRANSCRIBE: { model: 'gemini-3.5-flash-lite', credits: 3 },
+} as const;
+
+export function aiProvider(): 'gemini' | 'openai' | null {
+  if (process.env.GEMINI_API_KEY) return 'gemini';
+  if (process.env.OPENAI_API_KEY) return 'openai';
+  return null;
+}
+
+function geminiQuote(kind: Exclude<AiKind, 'CLIP'>) {
+  const fallback = geminiDefaults[kind];
+  const model = process.env[`GEMINI_${kind}_MODEL`] || fallback.model;
+  const credits = Number(process.env[`AI_${kind}_CREDITS`] || fallback.credits);
+  if (!Number.isSafeInteger(credits) || credits <= 0 || credits > 100_000) return null;
+  if (kind !== 'TEXT' && !assetStorageConfigured()) return null;
+  return { credits, model };
+}
+
 export function aiQuote(kind: AiKind) {
   if (kind === 'CLIP') return clippingConfigured() ? { credits: 0, model: 'ffmpeg' } : null;
+  if (aiProvider() === 'gemini') return geminiQuote(kind);
+  if (kind === 'VIDEO') return null;
   const values = {
     TEXT: [process.env.OPENAI_TEXT_MODEL, process.env.AI_TEXT_BASE_CREDITS],
     IMAGE: [process.env.OPENAI_IMAGE_MODEL, process.env.AI_IMAGE_BASE_CREDITS],
@@ -101,6 +130,52 @@ export async function queueAiJob(
   const text = prompt.trim();
   if (!text || text.length > 4000) throw new WorkspaceAccessError('Use a prompt of up to 4,000 characters.');
   return queueStudioJob(userId, slug, { kind, prompt: text, requestId }, confirmedCredits);
+}
+
+/** AI credit packs (prices in rupees before GST; GST is added at checkout). */
+export const creditPacks = {
+  starter: { name: 'Starter', credits: 100, priceInr: 199 },
+  growth: { name: 'Growth', credits: 500, priceInr: 799 },
+  pro: { name: 'Pro', credits: 1500, priceInr: 1999 },
+} as const;
+export type CreditPackId = keyof typeof creditPacks;
+export const creditPackIds = Object.keys(creditPacks) as CreditPackId[];
+
+/** Records a pending pack purchase for the workspace; the caller attaches the Razorpay payment link. */
+export async function startCreditPurchase(userId: string, slug: string, pack: CreditPackId, amountPaise: number) {
+  const membership = await prisma.membership.findFirst({ where: { userId, workspace: { slug } }, include: { workspace: true } });
+  if (!membership || !['OWNER', 'ADMIN'].includes(membership.role)) throw new WorkspaceAccessError('Only owners and admins can buy credits.');
+  return prisma.creditPurchase.create({
+    data: { workspaceId: membership.workspaceId, userId, pack, credits: creditPacks[pack].credits, amountPaise },
+    include: { workspace: { select: { slug: true, name: true } } },
+  });
+}
+
+export function attachCreditPaymentLink(id: string, paymentLinkId: string, shortUrl: string) {
+  return prisma.creditPurchase.update({ where: { id }, data: { paymentLinkId, shortUrl } });
+}
+
+/**
+ * Grants a paid pack exactly once. Safe to call from both the payment redirect and the webhook: the credit entry
+ * reference is unique, and the purchase row is only moved to "paid" once.
+ */
+export async function completeCreditPurchase(paymentLinkId: string, paymentId: string | null, amountPaidPaise: number) {
+  return prisma.$transaction(async (tx) => {
+    const purchase = await tx.creditPurchase.findUnique({ where: { paymentLinkId } });
+    if (!purchase) return null;
+    if (purchase.status === 'paid') return purchase;
+    if (amountPaidPaise < purchase.amountPaise) throw new Error('Paid amount is lower than the pack price.');
+    const claimed = await tx.creditPurchase.updateMany({
+      where: { id: purchase.id, status: { not: 'paid' } }, data: { status: 'paid', paymentId, paidAt: new Date() },
+    });
+    if (!claimed.count) return purchase;
+    await initializeAccount(tx, purchase.workspaceId);
+    await tx.creditEntry.create({
+      data: { workspaceId: purchase.workspaceId, kind: 'PURCHASE', delta: purchase.credits, reference: 'purchase:' + purchase.id },
+    });
+    await tx.creditAccount.update({ where: { workspaceId: purchase.workspaceId }, data: { available: { increment: purchase.credits } } });
+    return { ...purchase, status: 'paid' };
+  });
 }
 
 export function validClipRange(startSecond: number, durationSeconds: number) {

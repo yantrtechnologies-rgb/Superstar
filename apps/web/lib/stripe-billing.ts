@@ -39,6 +39,9 @@ export async function createSubscriptionCheckout(
     await tx.$queryRaw`SELECT id FROM workspaces WHERE id = ${workspaceId}::uuid FOR UPDATE`;
     const actor = await tx.membership.findFirst({ where: { userId: actorId, workspaceId, role: { in: ['OWNER', 'ADMIN'] } } });
     if (!actor) return null;
+    // One payment provider per workspace: refuse while a Razorpay subscription holds or is about to hold a plan.
+    const razorpay = await tx.razorpaySubscription.findUnique({ where: { workspaceId } });
+    if (razorpay && ['authenticated', 'active', 'pending', 'halted', 'paused'].includes(razorpay.status)) return null;
     let account = await tx.billingAccount.findUnique({ where: { workspaceId } });
     if (!account) {
       const customer = await billing.stripe.customers.create({ metadata: { workspaceId } },

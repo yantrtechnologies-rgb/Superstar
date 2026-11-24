@@ -2,13 +2,12 @@ import { discord } from './discord';
 import { linkedin } from './linkedin';
 import { facebook, instagram } from './meta';
 import { ProviderConfigurationError, type ProviderAdapter, type ProviderId } from './provider-contract';
-import { slack } from './slack';
 import { telegram } from './telegram';
 import { youtube } from './youtube';
 import { x } from './x';
 
 export const providers: Record<ProviderId, ProviderAdapter> = {
-  discord, telegram, slack, linkedin, facebook, instagram, youtube, x,
+  discord, telegram, linkedin, facebook, instagram, youtube, x,
 };
 
 export function getProvider(id: string): ProviderAdapter | undefined {
@@ -25,7 +24,7 @@ export function validateProviderPost(providerId: string, text: string, assetType
   if (hasVideo && !provider.acceptsVideo) throw new ProviderConfigurationError(`${provider.name} does not support video in this connector.`);
   const limit = hasImage || hasVideo ? provider.imageCaptionLimit : provider.textLimit;
   if (limit === null) throw new ProviderConfigurationError(`${provider.name} currently supports text only.`);
-  if (!text.trim() || text.length > limit) {
+  if (!text.trim() || (text.length > limit && !provider.splitsLongText)) {
     throw new ProviderConfigurationError(`${provider.name} allows up to ${limit} characters for this post.`);
   }
 }
