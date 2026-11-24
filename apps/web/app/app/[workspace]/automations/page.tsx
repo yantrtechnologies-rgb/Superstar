@@ -7,7 +7,7 @@ import { addFeedAction, runFeedAction, toggleFeedAction } from './actions';
 const messages: Record<string, string> = {
   saved: 'RSS rule saved.',
   queued: 'Run requested. Repeated requests in the same five-minute window use the same run.',
-  allowlist: 'Ask your operator to allow the exact HTTPS feed URL.',
+  allowlist: 'That feed address was not accepted. Use a public https:// feed address, for example https://example.com/feed.',
   invalid: 'Check the rule, input and your workspace access.',
 };
 
@@ -34,8 +34,13 @@ export default async function Automations({ params, searchParams }: {
           <input type="hidden" name="workspace" value={workspace} />
           <label htmlFor="feed-name">Rule name</label>
           <input id="feed-name" name="name" maxLength={80} required />
-          <label htmlFor="feed-url">Approved HTTPS feed URL</label>
-          <input id="feed-url" name="url" type="url" maxLength={2048} required />
+          <label htmlFor="feed-url">Feed address (https://)</label>
+          <input id="feed-url" name="url" type="url" maxLength={2048} required placeholder="https://example.com/feed" />
+          <p className="muted-line">
+            Most blogs have one: WordPress sites use <code>/feed</code>, Blogger uses <code>/feeds/posts/default</code>, and a YouTube
+            channel&apos;s feed is <code>https://www.youtube.com/feeds/videos.xml?channel_id=YOUR_CHANNEL_ID</code>.
+            New items are checked every 15 minutes.
+          </p>
           {channels.length > 0 && <fieldset>
             <legend>Publishing after review</legend>
             <label className="channel-choice">

@@ -8,7 +8,7 @@ import { KeyForm } from './key-form';
 function apiDocs() {
   if (!process.env.API_PUBLIC_URL) return null;
   try {
-    const url = new URL('/docs', process.env.API_PUBLIC_URL);
+    const url = new URL(process.env.API_PUBLIC_URL.replace(/\/+$/, '') + '/docs');
     return ['https:', 'http:'].includes(url.protocol) ? url.href : null;
   } catch {
     return null;

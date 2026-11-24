@@ -42,7 +42,8 @@ async function bootstrap() {
   const openApi = new DocumentBuilder().setTitle('Superstar API').setVersion('1.0')
     .addBearerAuth({ type: 'http', scheme: 'bearer', description: 'Workspace API key' }, 'WorkspaceKey')
     .build();
-  SwaggerModule.setup('docs', app, () => SwaggerModule.createDocument(app, openApi));
+  // Served at /api/docs so it sits next to the API behind the website's /api path.
+  SwaggerModule.setup('api/docs', app, () => SwaggerModule.createDocument(app, openApi));
   await app.listen(Number(process.env.PORT ?? 3001), process.env.API_LISTEN_HOST ?? '0.0.0.0');
 }
 

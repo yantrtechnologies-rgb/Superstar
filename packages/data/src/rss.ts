@@ -7,11 +7,23 @@ import { canManageTeam, WorkspaceAccessError } from './workspaces';
 
 export class RssConfigurationError extends Error {}
 
+/** RSS_ALLOWED_FEEDS="*" accepts any public HTTPS feed; otherwise it is a comma-separated list of exact URLs. */
+const anyFeed = () => process.env.RSS_ALLOWED_FEEDS?.trim() === '*';
+
 export function allowedFeedUrl(value: string) {
   try {
-    return allowedOutboundUrl(value, process.env.RSS_ALLOWED_FEEDS);
+    if (!anyFeed()) return allowedOutboundUrl(value, process.env.RSS_ALLOWED_FEEDS);
+    // Query strings are allowed for feeds (YouTube channel feeds use ?channel_id=). fetchFeed still only
+    // connects to public IPv4 addresses and caps the download size.
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.port
+      || !/^(?:[a-z0-9-]+\.)+[a-z][a-z0-9-]*$/i.test(url.hostname)) throw new Error('unsupported');
+    url.hash = '';
+    return url;
   } catch {
-    throw new RssConfigurationError('Ask the workspace operator to allow this exact HTTPS feed URL.');
+    throw new RssConfigurationError(anyFeed()
+      ? 'Use a public https:// feed address, for example https://example.com/feed.'
+      : 'Ask the workspace operator to allow this exact HTTPS feed URL.');
   }
 }
 

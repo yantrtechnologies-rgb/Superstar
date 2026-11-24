@@ -41,10 +41,22 @@ export async function fetchFeed(source: string) {
   });
 }
 
+const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
+function decode(text: string) {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z0-9]+);/gi, (match, name: string) => {
+    if (name[0] === '#') {
+      const code = name[1]?.toLowerCase() === 'x' ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
+      return Number.isInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+    }
+    return entities[name.toLowerCase()] ?? match;
+  });
+}
+
+/** Text only: feeds often send summaries as escaped HTML, so decode entities, then drop tags and squeeze spaces. */
 function plain(value: unknown, limit: number) {
-  return typeof value === 'string' || typeof value === 'number'
-    ? String(value).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit)
-    : '';
+  if (typeof value !== 'string' && typeof value !== 'number') return '';
+  const text = decode(String(value)).replace(/<[^>]*>/g, ' ');
+  return decode(text).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
 function link(value: unknown) {

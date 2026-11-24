@@ -10,6 +10,16 @@ export HOME=/root PATH=/usr/local/bin:$PATH
 # Settings from the encrypted parameter (readable only by the superstar user).
 aws ssm get-parameter --region $REGION --name /superstar/env --with-decryption --query Parameter.Value --output text > $ENVFILE.new
 install -m 600 -o superstar -g superstar $ENVFILE.new $ENVFILE && rm -f $ENVFILE.new
+# Server-side defaults the stored settings may not carry (a stored value always wins).
+for setting in 'REDIS_URL=redis://127.0.0.1:6379' 'API_PUBLIC_URL=https://superstar.xolnet.in/api' 'RSS_ALLOWED_FEEDS=*'; do
+  key=${setting%%=*}
+  if ! grep -q "^$key=." $ENVFILE; then sed -i "/^$key=/d" $ENVFILE; printf '\n%s\n' "$setting" >> $ENVFILE; fi
+done
+
+# Redis for the public API's per-key rate limit. Listens on this machine only.
+if ! systemctl is-active --quiet redis6 && ! systemctl is-active --quiet valkey; then
+  if dnf install -y -q redis6; then systemctl enable --now redis6; else dnf install -y -q valkey && systemctl enable --now valkey; fi
+fi
 
 # Fresh copy of the code (keeps the previous build until the new one succeeds).
 aws s3 cp --region $REGION s3://$BUCKET/deploy/superstar-release.tgz /tmp/superstar-release.tgz --only-show-errors
@@ -67,7 +77,17 @@ done
 cat > /etc/caddy/Caddyfile <<'CADDY'
 superstar.xolnet.in {
   encode zstd gzip
-  reverse_proxy 127.0.0.1:3000
+  # Public workspace API (base URL https://superstar.xolnet.in/api). Its routes are /v1/... on the API server.
+  handle /api/docs* {
+    reverse_proxy 127.0.0.1:3001
+  }
+  handle /api/v1/* {
+    uri strip_prefix /api
+    reverse_proxy 127.0.0.1:3001
+  }
+  handle {
+    reverse_proxy 127.0.0.1:3000
+  }
   header {
     Strict-Transport-Security "max-age=31536000"
     X-Content-Type-Options nosniff
@@ -93,6 +113,7 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now superstar-temporal superstar-worker superstar-api superstar-web caddy
 systemctl restart superstar-worker superstar-api superstar-web
+systemctl reload caddy || systemctl restart caddy
 sleep 8
 for s in superstar-temporal superstar-worker superstar-api superstar-web caddy; do echo "$s: $(systemctl is-active $s)"; done
 curl -s -o /dev/null -w 'web local: %{http_code}\n' http://127.0.0.1:3000/login || true
