@@ -46,7 +46,7 @@ test('workspace REST API scopes requests, enforces approval and rate limits, and
     assert.equal(Object.hasOwn((await listApiKeys(owner.id, workspace.slug))[0], 'tokenHash'), false);
     service = await startApi();
 
-    const docs = await fetch(new URL('/docs-json', service.baseUrl)).then((response) => response.json());
+    const docs = await fetch(new URL('/api/docs-json', service.baseUrl)).then((response) => response.json());
     const route = '/v1/workspaces/{workspace}/posts';
     assert.equal(docs.components.securitySchemes.WorkspaceKey.scheme, 'bearer');
     assert.ok(docs.paths[route].post.parameters.some(({ name }) => name === 'Idempotency-Key'));

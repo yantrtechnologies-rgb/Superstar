@@ -4,7 +4,7 @@ Superstar is a social campaign workspace. This scaffold includes a branded web e
 
 ## Local stack
 
-With Docker and Compose installed, run `docker compose up --build`. Compose starts PostgreSQL, Redis, Temporal and MinIO and applies the database migration before starting the API. The Compose credentials and loopback ports are for local development.
+With Docker and Compose installed, run `docker compose up --build`. Compose starts PostgreSQL, Redis, Temporal and RustFS (S3-compatible storage) and applies the database migration before starting the API. The Compose credentials and loopback ports are for local development.
 
 | URL | Surface |
 | --- | --- |
@@ -142,7 +142,7 @@ Workspace owners and admins can issue and revoke keys under **Team settings → 
 
 List endpoints accept `limit` and `offset` and return `nextOffset`. Draft creation accepts an optional UUID in `Idempotency-Key`. Reuse that UUID when retrying the same payload. A different payload with the same key returns HTTP 409. Request review in the API and approve the revision in Superstar or with a client review link. Scheduling supports `now`, `next`, and `at` with an explicit future UTC timestamp.
 
-The API uses Redis for a per-key minute limit configured with `API_REQUESTS_PER_MINUTE`. A rate-limited response includes `Retry-After`. Swagger UI is at `/docs`, and the OpenAPI document is at `/docs-json`.
+The API uses Redis for a per-key minute limit configured with `API_REQUESTS_PER_MINUTE`. A rate-limited response includes `Retry-After`. Swagger UI is at `/api/docs`, and the OpenAPI document is at `/api/docs-json`.
 
 Example using a locally running API
 
