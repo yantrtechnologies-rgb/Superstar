@@ -13,7 +13,8 @@ With Docker and Compose installed, run `docker compose up --build`. Compose star
 | http://localhost:3001/docs | OpenAPI |
 | http://localhost:3001/health | API liveness |
 | http://localhost:3001/health/ready | API database readiness |
-| http://localhost:3002 | Worker readiness |
+
+The worker's readiness endpoint (port 3002) listens only inside its container; Compose reports it as the `worker` health status (`docker compose ps`).
 
 Object storage and Redis are provisioned for later features. Create the configured bucket before implementing media uploads. Phase 2 introduces account access.
 

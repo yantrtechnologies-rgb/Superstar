@@ -62,18 +62,25 @@ jobs:
         shell: bash -o pipefail {0}
       - name: Check the stack
         run: |
-          for url in http://localhost:3000/health http://localhost:3001/health/ready http://localhost:3002; do
+          for url in http://localhost:3000/health http://localhost:3001/health/ready; do
             curl --fail --silent --show-error --retry 24 --retry-delay 5 --retry-all-errors "$url"
           done
-      - name: Check the isolated media worker
+      # The workers' health endpoints listen only inside their containers.
+      - name: Check the workers
         run: |
-          for attempt in {1..20}; do
-            if docker compose exec -T media-worker node -e "fetch('http://127.0.0.1:3003').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
-              exit 0
-            fi
-            sleep 3
+          for target in worker:3002 media-worker:3003; do
+            service=${target%:*}
+            port=${target#*:}
+            ready=
+            for attempt in {1..20}; do
+              if docker compose exec -T "$service" node -e "fetch('http://127.0.0.1:$port').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+                ready=1
+                break
+              fi
+              sleep 3
+            done
+            [ -n "$ready" ] || { echo "::error title=Worker not ready::$service did not report ready"; exit 1; }
           done
-          exit 1
       - if: failure()
         run: docker compose logs --no-color
       # Job logs need a GitHub sign-in; an annotation shows which container failed and its last log lines.
@@ -81,7 +88,11 @@ jobs:
         if: failure()
         run: |
           # GitHub shortens long annotations, so the container states and errors come first.
-          { docker compose ps -a --format 'table {{.Service}}\t{{.State}}\t{{.Status}}'; grep -iE 'error|unhealthy|exited|dependency failed' "$RUNNER_TEMP/compose.log" | tail -n 10; } > "$RUNNER_TEMP/compose-failure.log" 2>&1 || true
+          { docker compose ps -a --format 'table {{.Service}}\t{{.State}}\t{{.Status}}'
+            for service in $(docker compose ps -a --status exited --format '{{.Service}}' | grep -vx migrate); do
+              echo "--- $service"; docker compose logs --no-color --no-log-prefix --tail 6 "$service"
+            done
+            grep -iE 'error|unhealthy|exited|dependency failed' "$RUNNER_TEMP/compose.log" | tail -n 10; } > "$RUNNER_TEMP/compose-failure.log" 2>&1 || true
           node scripts/ci-annotate.mjs "$RUNNER_TEMP/compose-failure.log" "Compose failure"
       - if: always()
         run: docker compose down --volumes

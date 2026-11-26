@@ -166,8 +166,13 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    ports:
-      - "127.0.0.1:3002:3002"
+    # The health endpoint listens on the container's own 127.0.0.1 (not published), so it is checked inside the container.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 15s
 
   media-worker:
     image: cadencedesk-media-local

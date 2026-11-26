@@ -31,7 +31,8 @@ async function main() {
   }
 }
 
-void main().catch(() => {
-  console.error(JSON.stringify({ event: 'media.worker_stopped' }));
+void main().catch((error: unknown) => {
+  // The shortened message only, so the container log says why the worker stopped.
+  console.error(JSON.stringify({ event: 'media.worker_stopped', error: error instanceof Error ? error.message.slice(0, 500) : 'unknown' }));
   process.exitCode = 1;
 });
