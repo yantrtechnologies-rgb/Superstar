@@ -5,6 +5,10 @@ const config = {
   },
   async headers() {
     return [{
+      // Brand images (app icons) may be fetched by other sites, e.g. developer consoles that take the app icon.
+      source: '/brand/:path*',
+      headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }, { key: 'Cache-Control', value: 'public, max-age=86400' }],
+    }, {
       source: '/app/:workspace/channels/meta',
       headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }, { key: 'Cache-Control', value: 'private, no-store' }],
     }, {
