@@ -18,6 +18,9 @@ export default async function ConnectLinkPage({ params, searchParams }: {
     );
   }
   const network = link.providerName;
+  // The site the client actually signs in on, which differs from the product name for Pages, Instagram and YouTube.
+  const site = ({ facebook: 'Facebook', instagram: 'Facebook', linkedin: 'LinkedIn', 'linkedin-pages': 'LinkedIn', youtube: 'Google', x: 'X' } as Record<string, string>)[link.provider] ?? network;
+  const accounts = link.provider === 'facebook' ? 'Facebook Pages' : `${network} account`;
   return (
     <main className="identity-shell">
       <p className="wordmark">Superstar</p>
@@ -26,15 +29,15 @@ export default async function ConnectLinkPage({ params, searchParams }: {
       <section className="panel">
         <ul className="connect-link-points">
           <li><strong>Only continue if you know and trust {link.workspaceName}.</strong> They sent you this link.</li>
-          <li>{link.workspaceName} will be able to schedule and publish posts to the {network} account{link.provider === 'facebook' ? 's (Pages)' : ''} you connect, from their Superstar workspace.</li>
-          <li>You don&apos;t need a Superstar account, and Superstar never sees your {network} password: you sign in on {network}&apos;s own page.</li>
-          <li>You can remove the access at any time in your {network} settings, or ask {link.workspaceName} to disconnect it.</li>
+          <li>{link.workspaceName} will be able to schedule and publish posts to the {accounts} you connect, from their Superstar workspace.</li>
+          <li>You don&apos;t need a Superstar account, and Superstar never sees your {site} password: you sign in on {site}&apos;s own page.</li>
+          <li>You can remove the access at any time in your {site} settings, or ask {link.workspaceName} to disconnect it.</li>
         </ul>
       </section>
       {status === 'busy' && <p role="status">Too many attempts with this link. Wait 10 minutes and try again.</p>}
       <form action={startConnectLinkAction} className="identity-form">
         <input type="hidden" name="token" value={token} />
-        <button type="submit" className="primary">Continue to {network}</button>
+        <button type="submit" className="primary">Continue to {site}</button>
       </form>
       <p className="muted-line">
         {link.provider === 'facebook' || link.provider === 'instagram'

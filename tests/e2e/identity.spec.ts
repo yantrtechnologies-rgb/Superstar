@@ -641,7 +641,7 @@ test('a client connect link lets someone without a Superstar account connect Fac
     });
     await client.goto(target);
     await expect(client.getByRole('heading', { name: 'Connect your Facebook Pages to Agency Clients' })).toBeVisible();
-    await client.getByRole('button', { name: 'Continue to Facebook Pages' }).click();
+    await client.getByRole('button', { name: 'Continue to Facebook' }).click();
     await expect(client).toHaveURL(/\/connect\/select\?selection=/);
     expect(await client.content()).not.toContain('fixture-page-token');
     await client.getByLabel('Fieldwork Page', { exact: true }).check();
