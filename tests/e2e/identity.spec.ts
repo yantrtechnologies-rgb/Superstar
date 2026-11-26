@@ -614,3 +614,53 @@ test('Facebook and Instagram connections select accounts, reject replay and isol
     await prisma.$disconnect();
   }
 });
+
+test('a client connect link lets someone without a Superstar account connect Facebook Pages, until revoked', async ({ browser, page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  const email = `connect-link-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Agency Clients');
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
+  const visitor = await browser.newContext();
+  try {
+    await page.goto(path + '/channels');
+    await page.getByLabel('Network', { exact: true }).selectOption('facebook');
+    await page.getByLabel('Client name (optional, shown to the client)').fill('Fieldwork Client');
+    await page.getByRole('button', { name: 'Create connect link' }).click();
+    await expect(page.getByRole('status')).toHaveText('Connect link created. Copy it below and send it to your client.');
+    const link = await page.getByLabel('Connect link for Facebook Pages · Fieldwork Client').inputValue();
+    // The client has no Superstar session: a separate browser context with no cookies.
+    const target = new URL(new URL(link).pathname, page.url()).href;
+    const client = await visitor.newPage();
+    await client.route(/^https:\/\/www\.facebook\.com\/v[0-9]+\.0\/dialog\/oauth\?/, async (route) => {
+      const url = new URL(route.request().url());
+      const callback = new URL(url.searchParams.get('redirect_uri')!);
+      callback.searchParams.set('state', url.searchParams.get('state')!);
+      callback.searchParams.set('code', 'fixture-meta-code');
+      await route.fulfill({ status: 303, headers: { Location: callback.href }, body: '' });
+    });
+    await client.goto(target);
+    await expect(client.getByRole('heading', { name: 'Connect your Facebook Pages to Agency Clients' })).toBeVisible();
+    await client.getByRole('button', { name: 'Continue to Facebook Pages' }).click();
+    await expect(client).toHaveURL(/\/connect\/select\?selection=/);
+    expect(await client.content()).not.toContain('fixture-page-token');
+    await client.getByLabel('Fieldwork Page', { exact: true }).check();
+    await client.getByRole('button', { name: 'Connect selected accounts' }).click();
+    await expect(client.getByRole('heading', { name: 'You\'re connected' })).toBeVisible();
+    const channel = await prisma.channel.findFirstOrThrow({ where: { workspaceId: workspace.id, provider: 'facebook' }, include: { credential: true } });
+    expect(channel.name).toBe('Fieldwork Page');
+    expect(channel.credential!.accessToken).toMatch(/^v1\./);
+    // The agency revokes the link; it stops working for the client.
+    await page.goto(path + '/channels');
+    await page.getByRole('button', { name: 'Revoke' }).click();
+    await expect(page.getByRole('status')).toHaveText('Connect link revoked. It no longer works.');
+    await client.goto(target);
+    await expect(client.getByRole('heading', { name: 'This link is no longer valid' })).toBeVisible();
+  } finally {
+    await visitor.close();
+    const owner = await prisma.user.findUnique({ where: { email } });
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    if (owner) await prisma.user.delete({ where: { id: owner.id } });
+    await prisma.$disconnect();
+  }
+});

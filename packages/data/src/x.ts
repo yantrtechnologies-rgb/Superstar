@@ -38,7 +38,7 @@ async function exchange(body: URLSearchParams) {
   };
 }
 export function xConfigured() { return Boolean(settings()); }
-export async function beginXConnection(userId: string, slug: string) {
+export async function beginXConnection(userId: string, slug: string, connectLinkHash?: string) {
   const workspace = await prisma.workspace.findUnique({ where: { slug } });
   if (!workspace) throw new WorkspaceAccessError('Workspace unavailable.');
   await manager(prisma, userId, workspace.id);
@@ -49,7 +49,7 @@ export async function beginXConnection(userId: string, slug: string) {
   const hash = digest(state);
   await prisma.oAuthState.create({ data: {
     hash, provider, userId, workspaceId: workspace.id, expiresAt: new Date(Date.now() + 10 * 60_000),
-    payload: sealToken(verifier, `x-state/${hash}`),
+    payload: sealToken(verifier, `x-state/${hash}`), connectLinkHash: connectLinkHash ?? null,
   } });
   const url = new URL('https://x.com/i/oauth2/authorize');
   url.search = new URLSearchParams({

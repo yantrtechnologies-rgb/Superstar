@@ -1,9 +1,11 @@
 import { metaConnectionAction } from './meta/actions';
-import { metaConfiguration, canManageTeam, getProvider, linkedInPagesConfigured, listChannels, providerIds, providers } from '@cadencedesk/data';
+import { metaConfiguration, canManageTeam, connectLinkProviderName, connectLinkProviders, getProvider, linkedInPagesConfigured, listChannels, listConnectLinks, providerIds, providers } from '@cadencedesk/data';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getMembership, requireUser } from '../../../../lib/require-user';
 import { connectChannelAction, disconnectOAuthAction, startOAuthAction } from '../publishing-actions';
+import { connectLinkAction } from './connect-link-actions';
+import { CopyLink } from './copy-link';
 
 const messages: Record<string, string> = {
   saved: 'Channel connected.',
@@ -24,6 +26,9 @@ const messages: Record<string, string> = {
   'youtube-unavailable': 'YouTube authorization was unsuccessful. Check Google OAuth configuration and try again.',
   'youtube-no-channel': 'That Google account has no YouTube channel. Create a channel at youtube.com, then connect again.',
   'x-unavailable': 'X authorization was unsuccessful. Check the X app configuration and try again.',
+  'link-created': 'Connect link created. Copy it below and send it to your client.',
+  'link-revoked': 'Connect link revoked. It no longer works.',
+  'link-unavailable': 'That connect link could not be created or changed. Check the network is configured, then try again.',
 };
 
 // How each network decides which account gets connected, so testers never connect someone else's account by accident.
@@ -56,6 +61,8 @@ export default async function Channels({ params, searchParams }: {
   if (!membership) notFound();
   const channels = await listChannels(user.id, workspace);
   const canManage = canManageTeam(membership.role);
+  const linkProviders = canManage ? connectLinkProviders() : [];
+  const links = canManage ? await listConnectLinks(user.id, workspace) : [];
   const marks: Record<string, string> = { facebook: 'f', instagram: 'ig', linkedin: 'in', youtube: '▶', x: 'X', telegram: 'tg', discord: 'dc' };
   return (
     <>
@@ -180,6 +187,47 @@ export default async function Channels({ params, searchParams }: {
             </section>
           )}
         </div>
+        {linkProviders.length > 0 && (
+          <section id="client-links" className="panel">
+            <h2>Client connect links</h2>
+            <p>
+              Let a client connect their own account without sharing a password or creating a Superstar account. Create a link,
+              send it to them, and they sign in on the network themselves; the account then appears in this workspace.
+              Links work for 7 days and can be used several times until you revoke them.
+            </p>
+            <form action={connectLinkAction} className="identity-form">
+              <input type="hidden" name="intent" value="create" />
+              <input type="hidden" name="workspace" value={workspace} />
+              <label htmlFor="link-provider">Network</label>
+              <select id="link-provider" name="provider" required defaultValue={linkProviders[0]}>
+                {linkProviders.map((id) => <option key={id} value={id}>{connectLinkProviderName(id)}</option>)}
+              </select>
+              <label htmlFor="link-label">Client name (optional, shown to the client)</label>
+              <input id="link-label" name="label" maxLength={80} placeholder="e.g. Sharma Dental Clinic" />
+              <button type="submit" className="primary">Create connect link</button>
+            </form>
+            {links.length > 0 && (
+              <ul className="connect-links">
+                {links.map((link) => (
+                  <li key={link.id}>
+                    <p>
+                      <strong>{link.providerName}</strong>{link.label ? ` · ${link.label}` : ''}
+                      <small> — by {link.createdBy}, expires {link.expiresAt.toUTCString().slice(0, 16)}
+                        {link.lastUsedAt ? `, last opened ${link.lastUsedAt.toUTCString().slice(0, 22)} UTC` : ', not opened yet'}</small>
+                    </p>
+                    <CopyLink url={link.url} label={`Connect link for ${link.providerName}${link.label ? ' · ' + link.label : ''}`} />
+                    <form action={connectLinkAction}>
+                      <input type="hidden" name="intent" value="revoke" />
+                      <input type="hidden" name="workspace" value={workspace} />
+                      <input type="hidden" name="link" value={link.id} />
+                      <button type="submit" className="btn">Revoke</button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
       </>}
     </>
   );

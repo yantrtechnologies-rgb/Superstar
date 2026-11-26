@@ -18,7 +18,7 @@ async function requireManager(client: Prisma.TransactionClient, userId: string, 
   if (!membership || !canManageTeam(membership.role)) throw new WorkspaceAccessError('You cannot manage this connection.');
 }
 
-export async function beginLinkedInConnection(userId: string, slug: string, mode: LinkedInMode = 'member') {
+export async function beginLinkedInConnection(userId: string, slug: string, mode: LinkedInMode = 'member', connectLinkHash?: string) {
   const workspace = await prisma.workspace.findUnique({ where: { slug }, select: { id: true } });
   if (!workspace) throw new WorkspaceAccessError('Workspace unavailable.');
   await requireManager(prisma, userId, workspace.id);
@@ -29,6 +29,7 @@ export async function beginLinkedInConnection(userId: string, slug: string, mode
     prisma.oAuthState.deleteMany({ where: { userId, expiresAt: { lte: now } } }),
     prisma.oAuthState.create({ data: {
       hash: digest(state), provider, userId, workspaceId: workspace.id, payload: mode === 'pages' ? 'pages' : null,
+      connectLinkHash: connectLinkHash ?? null,
       expiresAt: new Date(now.getTime() + 10 * 60_000),
     } }),
   ]);

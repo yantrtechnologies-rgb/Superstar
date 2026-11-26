@@ -67,7 +67,7 @@ async function graph(path: string, params: Record<string, string>, token?: strin
   }
 }
 
-export async function beginMetaConnection(userId: string, slug: string, provider: MetaProvider) {
+export async function beginMetaConnection(userId: string, slug: string, provider: MetaProvider, connectLinkHash?: string) {
   const workspace = await prisma.workspace.findUnique({ where: { slug } });
   if (!workspace) throw new WorkspaceAccessError('Workspace unavailable.');
   await manager(prisma, userId, workspace.id);
@@ -95,7 +95,7 @@ export async function beginMetaConnection(userId: string, slug: string, provider
     prisma.oAuthState.deleteMany({ where: { userId, expiresAt: { lte: new Date() } } }),
     prisma.oAuthState.create({ data: {
       hash: digest(state), userId, workspaceId: workspace.id, provider: 'meta-' + provider,
-      expiresAt: new Date(Date.now() + 10 * 60_000),
+      expiresAt: new Date(Date.now() + 10 * 60_000), connectLinkHash: connectLinkHash ?? null,
     } }),
   ]);
   return url.href;
@@ -107,7 +107,9 @@ export async function completeMetaConnection(userId: string, state: string, code
   const grant = await prisma.oAuthState.findFirst({ where, include: { workspace: true } });
   if (!grant || !(await prisma.oAuthState.deleteMany({ where })).count) throw new ProviderConfigurationError('Connection request expired.');
   await manager(prisma, userId, grant.workspaceId);
-  const base = '/app/' + grant.workspace.slug + '/channels';
+  // A client connecting through an agency's link has no access to the workspace, so results go to public pages.
+  const viaLink = grant.connectLinkHash;
+  const base = viaLink ? '/connect/done' : '/app/' + grant.workspace.slug + '/channels';
   if (!code) return base + '?status=meta-canceled';
   try {
     const config = metaConfiguration();
@@ -223,13 +225,13 @@ export async function completeMetaConnection(userId: string, state: string, code
     const selection = randomBytes(32).toString('base64url');
     const hash = digest(selection);
     await prisma.oAuthState.create({ data: {
-      hash, userId, workspaceId: grant.workspaceId, provider: 'meta-selection',
+      hash, userId, workspaceId: grant.workspaceId, provider: 'meta-selection', connectLinkHash: viaLink,
       expiresAt: new Date(Date.now() + 10 * 60_000),
       payload: sealToken(JSON.stringify({
         provider, accounts, unavailable, expiresAt: new Date(Date.now() + long.expires_in * 1000).toISOString(),
       }), 'meta-selection/' + hash),
     } });
-    return base + '/meta?selection=' + selection;
+    return viaLink ? '/connect/select?selection=' + selection : base + '/meta?selection=' + selection;
   } catch (error) {
     if (!(error instanceof ProviderConfigurationError || error instanceof z.ZodError)) throw error;
     return base + '?status=meta-unavailable';

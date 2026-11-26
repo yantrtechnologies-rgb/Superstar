@@ -22,6 +22,7 @@ model Workspace {
 
   clientGroups ClientGroup[]
   oauthStates OAuthState[]
+  connectLinks ConnectLink[]
   creditAccount CreditAccount?
   creditPurchases CreditPurchase[]
   billingAccount BillingAccount?
@@ -62,6 +63,7 @@ model User {
   sessions      Session[]
   apiKeys       ApiKey[]
   oauthStates   OAuthState[]
+  connectLinks  ConnectLink[]
   memberships   Membership[]
   sentInvites   Invitation[]
   auditEvents   AuditEvent[]
@@ -331,11 +333,36 @@ model OAuthState {
   workspaceId String    @db.Uuid @map("workspace_id")
   provider    String
   expiresAt   DateTime  @map("expires_at")
+  // Set when a client started this connection from an agency's connect link (no Superstar session).
+  connectLinkHash String? @map("connect_link_hash")
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connectLink ConnectLink? @relation(fields: [connectLinkHash], references: [hash], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+  @@index([connectLinkHash, expiresAt])
   @@map("oauth_states")
+}
+
+// A link an agency sends to a client so the client can connect their own account to the agency's workspace
+// without a Superstar account. The client signs in on the network; the connection runs as the link's creator.
+model ConnectLink {
+  hash        String    @id
+  token       String
+  workspaceId String    @db.Uuid @map("workspace_id")
+  createdById String    @db.Uuid @map("created_by_id")
+  provider    String
+  label       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  expiresAt   DateTime  @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+  lastUsedAt  DateTime? @map("last_used_at")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  oauthStates OAuthState[]
+
+  @@index([workspaceId, expiresAt])
+  @@map("connect_links")
 }
 
 model ProviderCredential {

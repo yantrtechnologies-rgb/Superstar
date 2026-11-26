@@ -46,7 +46,7 @@ async function token(body: URLSearchParams) {
 
 export function youtubeConfigured() { return Boolean(settings()); }
 
-export async function beginYouTubeConnection(userId: string, slug: string) {
+export async function beginYouTubeConnection(userId: string, slug: string, connectLinkHash?: string) {
   const workspace = await prisma.workspace.findUnique({ where: { slug } });
   if (!workspace) throw new WorkspaceAccessError('Workspace unavailable.');
   await manager(prisma, userId, workspace.id);
@@ -55,6 +55,7 @@ export async function beginYouTubeConnection(userId: string, slug: string) {
   const state = randomBytes(32).toString('base64url');
   await prisma.oAuthState.create({ data: {
     hash: digest(state), provider, userId, workspaceId: workspace.id, expiresAt: new Date(Date.now() + 10 * 60_000),
+    connectLinkHash: connectLinkHash ?? null,
   } });
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   url.search = new URLSearchParams({
