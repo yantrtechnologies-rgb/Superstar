@@ -145,7 +145,7 @@ export async function completeMetaConnection(userId: string, state: string, code
     const addPage = (item: z.infer<typeof pageSchema>['data'][number]) => {
       const index = pages.findIndex((existing) => existing.id === item.id);
       if (index < 0) pages.push(item);
-      else if (!pages[index].access_token && item.access_token) pages[index] = item;
+      else if (!pages[index]?.access_token && item.access_token) pages[index] = item;
     };
     const listPages = async (path: string) => {
       let cursor: string | undefined;
