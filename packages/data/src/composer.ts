@@ -75,7 +75,9 @@ export async function checkComposer(
     const first = types[0];
     const hasImage = first?.startsWith('image/') ?? false;
     const hasVideo = first?.startsWith('video/') ?? false;
-    if (provider.requiresImage && !hasImage) problems.push(`${channel.name}: ${provider.name} needs an image.`);
+    if (provider.requiresImage && !hasImage && !(provider.acceptsVideo && hasVideo)) {
+      problems.push(`${channel.name}: ${provider.name} needs an image${provider.acceptsVideo ? ' or video' : ''}.`);
+    }
     if (provider.requiresVideo && !hasVideo) problems.push(`${channel.name}: ${provider.name} needs an MP4 video.`);
     if (hasVideo && !provider.acceptsVideo) problems.push(`${channel.name}: ${provider.name} does not accept video here.`);
     const limit = hasImage || hasVideo ? provider.imageCaptionLimit : provider.textLimit;

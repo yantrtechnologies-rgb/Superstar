@@ -1,7 +1,7 @@
 'use server';
 
 import {
-  AssetStorageError, beginLinkedInConnection, beginXConnection, beginYouTubeConnection, cancelPost, connectChannel,
+  AssetStorageError, beginInstagramDirectConnection, disconnectInstagramDirect, beginLinkedInConnection, beginXConnection, beginYouTubeConnection, cancelPost, connectChannel,
   disconnectLinkedIn, disconnectX, disconnectYouTube, ProviderConfigurationError, PostingSlotUnavailableError,
   approveForChannels, imageLimit, videoLimit, providerIds, providers, savePost, schedulePost,
   transitionPost, WorkspaceAccessError, PlanLimitError,
@@ -141,20 +141,22 @@ export async function disconnectLinkedInAction(form: FormData) {
 
 export async function startOAuthAction(form: FormData) {
   await run(form, 'channels', async (actor, slug) => {
-    const provider = z.enum(['linkedin', 'linkedin-pages', 'youtube', 'x']).parse(form.get('provider'));
+    const provider = z.enum(['linkedin', 'linkedin-pages', 'youtube', 'x', 'instagram-direct']).parse(form.get('provider'));
     const destination = provider === 'linkedin' ? await beginLinkedInConnection(actor, slug)
       : provider === 'linkedin-pages' ? await beginLinkedInConnection(actor, slug, 'pages')
-      : provider === 'youtube' ? await beginYouTubeConnection(actor, slug) : await beginXConnection(actor, slug);
+      : provider === 'youtube' ? await beginYouTubeConnection(actor, slug)
+      : provider === 'instagram-direct' ? await beginInstagramDirectConnection(actor, slug) : await beginXConnection(actor, slug);
     redirect(destination);
   });
 }
 
 export async function disconnectOAuthAction(form: FormData) {
   await run(form, 'channels', async (actor, slug) => {
-    const provider = z.enum(['linkedin', 'youtube', 'x']).parse(form.get('provider'));
+    const provider = z.enum(['linkedin', 'youtube', 'x', 'instagram-direct']).parse(form.get('provider'));
     const channelId = z.uuid().parse(form.get('channelId'));
     if (provider === 'linkedin') await disconnectLinkedIn(actor, slug, channelId);
     else if (provider === 'youtube') await disconnectYouTube(actor, slug, channelId);
+    else if (provider === 'instagram-direct') await disconnectInstagramDirect(actor, slug, channelId);
     else await disconnectX(actor, slug, channelId);
     redirect(`/app/${slug}/channels?status=disconnected`);
   });

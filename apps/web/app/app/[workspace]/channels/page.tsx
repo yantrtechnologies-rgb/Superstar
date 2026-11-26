@@ -30,6 +30,8 @@ const messages: Record<string, string> = {
   'link-created': 'Connect link created. Copy it below and send it to your client.',
   'link-revoked': 'Connect link revoked. It no longer works.',
   'link-unavailable': 'That connect link could not be created or changed. Check the network is configured, then try again.',
+  'instagram-unavailable': 'Instagram sign-in was unsuccessful, so nothing was connected. Grant both requested permissions and try again.',
+  'instagram-not-professional': 'That Instagram account is a personal account. Switch it to Business or Creator in the Instagram app (Settings → Account type and tools), then connect again.',
   'reminder-added': 'Reminder channel added. Choose it when you schedule a post, and Superstar emails the post kit when it is due.',
   'reminder-removed': 'Reminder channel removed. Posts already sent stay on the Reminders page.',
   'reminder-invalid': 'Give the reminder channel a name and choose who gets the email.',
@@ -39,6 +41,7 @@ const messages: Record<string, string> = {
 const accountNotes: Record<string, { text: string; signOut?: string }> = {
   facebook: { text: 'Facebook asks for the password of the account signed in on this browser. If it shows someone else, choose "Not you?" or "Log in with another account". When Facebook lists your Pages, tick every Page you want (choose "Edit access" if it skips that step); you can connect several Pages at once. Personal profiles can\'t be connected: Facebook only lets apps post to Pages. For a profile or Group, add a reminder channel below instead. If Facebook says "Feature Unavailable", the Superstar owner needs to add you as a tester; come back here with your browser\'s Back button.' },
   instagram: { text: 'Facebook asks for the password of the account signed in on this browser. If it shows someone else, choose "Not you?" or "Log in with another account". If Facebook says "Feature Unavailable", the Superstar owner needs to add you as a tester; come back here with your browser\'s Back button.' },
+  'instagram-direct': { text: 'Instagram always asks you to log in, so you can pick the right account. It must be a Business or Creator account (free to switch in the Instagram app); no Facebook Page is needed.' },
   youtube: { text: 'Google shows its account chooser. Pick your own account, or "Use another account".' },
   linkedin: { text: 'LinkedIn always connects the account already signed in on this browser and cannot be asked to switch. If that is not you, sign out of LinkedIn first.', signOut: 'https://www.linkedin.com/m/logout/' },
   x: { text: 'On X\'s page, tick "I trust this app" first: the Authorize app button stays greyed out until you do. X connects the account already signed in on this browser. If that is not you, sign out of X first.', signOut: 'https://x.com/logout' },
@@ -68,7 +71,7 @@ export default async function Channels({ params, searchParams }: {
   const linkProviders = canManage ? connectLinkProviders() : [];
   const links = canManage ? await listConnectLinks(user.id, workspace) : [];
   const recipients = canManage ? await reminderRecipients(user.id, workspace) : [];
-  const marks: Record<string, string> = { facebook: 'f', instagram: 'ig', linkedin: 'in', youtube: '▶', x: 'X', telegram: 'tg', discord: 'dc', reminder: '⏰' };
+  const marks: Record<string, string> = { facebook: 'f', instagram: 'ig', linkedin: 'in', youtube: '▶', x: 'X', telegram: 'tg', discord: 'dc', reminder: '⏰', 'instagram-direct': 'ig' };
   return (
     <>
       <header className="page-header">
@@ -124,7 +127,7 @@ export default async function Channels({ params, searchParams }: {
                     <button type="submit" className="btn">Disconnect {channel.name}</button>
                   </form>
                 )}
-                {(['linkedin', 'youtube', 'x'].includes(channel.provider)) && canManage && credential && (
+                {(['linkedin', 'youtube', 'x', 'instagram-direct'].includes(channel.provider)) && canManage && credential && (
                   <form action={disconnectOAuthAction}>
                     <input type="hidden" name="workspace" value={workspace} />
                     <input type="hidden" name="channelId" value={channel.id} />

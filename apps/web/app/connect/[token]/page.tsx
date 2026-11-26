@@ -19,7 +19,7 @@ export default async function ConnectLinkPage({ params, searchParams }: {
   }
   const network = link.providerName;
   // The site the client actually signs in on, which differs from the product name for Pages, Instagram and YouTube.
-  const site = ({ facebook: 'Facebook', instagram: 'Facebook', linkedin: 'LinkedIn', 'linkedin-pages': 'LinkedIn', youtube: 'Google', x: 'X' } as Record<string, string>)[link.provider] ?? network;
+  const site = ({ facebook: 'Facebook', instagram: 'Facebook', 'instagram-direct': 'Instagram', linkedin: 'LinkedIn', 'linkedin-pages': 'LinkedIn', youtube: 'Google', x: 'X' } as Record<string, string>)[link.provider] ?? network;
   const accounts = link.provider === 'facebook' ? 'Facebook Pages' : `${network} account`;
   return (
     <main className="identity-shell">

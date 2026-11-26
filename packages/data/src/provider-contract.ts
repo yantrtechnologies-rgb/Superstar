@@ -1,4 +1,4 @@
-export const providerIds = ['discord', 'telegram', 'linkedin', 'facebook', 'instagram', 'youtube', 'x', 'reminder'] as const;
+export const providerIds = ['discord', 'telegram', 'linkedin', 'facebook', 'instagram', 'youtube', 'x', 'instagram-direct', 'reminder'] as const;
 export type ProviderId = (typeof providerIds)[number];
 
 export class ProviderConfigurationError extends Error {}

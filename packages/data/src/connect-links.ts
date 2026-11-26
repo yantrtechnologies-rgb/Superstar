@@ -6,6 +6,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from './client';
+import { beginInstagramDirectConnection, instagramDirectConfigured } from './instagram-direct';
 import { linkedInConfigured, linkedInPagesConfigured } from './linkedin-api';
 import { beginLinkedInConnection } from './linkedin-connection';
 import { beginMetaConnection, metaAccountChoices, metaConfiguration, saveMetaAccounts } from './meta-connection';
@@ -16,7 +17,7 @@ import { canManageTeam, WorkspaceAccessError } from './workspaces';
 import { beginXConnection, xConfigured } from './x';
 import { beginYouTubeConnection, youtubeConfigured } from './youtube';
 
-export const connectLinkProvider = z.enum(['facebook', 'instagram', 'linkedin', 'linkedin-pages', 'youtube', 'x']);
+export const connectLinkProvider = z.enum(['facebook', 'instagram', 'instagram-direct', 'linkedin', 'linkedin-pages', 'youtube', 'x']);
 export type ConnectLinkProvider = z.infer<typeof connectLinkProvider>;
 
 const LIFETIME_MS = 7 * 86_400_000;
@@ -28,7 +29,7 @@ const digest = (value: string) => createHash('sha256').update(value).digest('hex
 const sealing = (hash: string) => 'connect-link/' + hash;
 
 const names: Record<ConnectLinkProvider, string> = {
-  facebook: 'Facebook Pages', instagram: 'Instagram', linkedin: 'LinkedIn profile', 'linkedin-pages': 'LinkedIn Page',
+  facebook: 'Facebook Pages', instagram: 'Instagram (via Facebook Page)', 'instagram-direct': 'Instagram', linkedin: 'LinkedIn profile', 'linkedin-pages': 'LinkedIn Page',
   youtube: 'YouTube', x: 'X',
 };
 export function connectLinkProviderName(provider: ConnectLinkProvider) { return names[provider]; }
@@ -36,7 +37,7 @@ export function connectLinkProviderName(provider: ConnectLinkProvider) { return 
 /** Networks a link can be created for on this server (the same ones the Channels page can connect). */
 export function connectLinkProviders(): ConnectLinkProvider[] {
   const configured: Record<ConnectLinkProvider, () => boolean> = {
-    facebook: () => Boolean(metaConfiguration()), instagram: () => Boolean(metaConfiguration()),
+    facebook: () => Boolean(metaConfiguration()), instagram: () => Boolean(metaConfiguration()), 'instagram-direct': instagramDirectConfigured,
     linkedin: linkedInConfigured, 'linkedin-pages': linkedInPagesConfigured, youtube: youtubeConfigured, x: xConfigured,
   };
   return connectLinkProvider.options.filter((provider) => configured[provider]());
@@ -138,6 +139,7 @@ export async function startConnectLink(token: string) {
   const { createdById: userId, workspace: { slug }, hash } = link;
   switch (link.provider) {
     case 'facebook': case 'instagram': return beginMetaConnection(userId, slug, link.provider, hash);
+    case 'instagram-direct': return beginInstagramDirectConnection(userId, slug, hash);
     case 'linkedin': return beginLinkedInConnection(userId, slug, 'member', hash);
     case 'linkedin-pages': return beginLinkedInConnection(userId, slug, 'pages', hash);
     case 'youtube': return beginYouTubeConnection(userId, slug, hash);

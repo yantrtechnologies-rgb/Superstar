@@ -687,3 +687,36 @@ test('a reminder channel can be added for a Facebook profile and shows on the Re
   await expect(page.getByRole('status')).toContainText('Reminder channel removed');
   await expect(page.locator('.channel-card', { hasText: 'Reshma Patel profile' })).toHaveCount(0);
 });
+test('Instagram Login connects a Business account without a Facebook Page',async ({ page }) => {
+  const { prisma } = await import('../../packages/data/dist/index.js');
+  const email = `instagram-direct-${randomUUID()}@example.invalid`;
+  await signIn(page, email);
+  const path = await createWorkspace(page, 'Instagram Direct Studio');
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
+  try {
+    await page.route(/^https:\/\/www\.instagram\.com\/oauth\/authorize\?/, async (route) => {
+      const authorization = new URL(route.request().url());
+      expect(authorization.searchParams.get('client_id')).toBe('987654321');
+      expect(authorization.searchParams.get('scope')).toBe('instagram_business_basic,instagram_business_content_publish');
+      expect(authorization.searchParams.get('force_reauth')).toBe('true');
+      const callback = new URL(authorization.searchParams.get('redirect_uri')!);
+      expect(callback.pathname).toBe('/api/connect/instagram-direct');
+      callback.searchParams.set('state', authorization.searchParams.get('state')!);
+      callback.searchParams.set('code', 'fixture-instagram-code#_');
+      await route.fulfill({ status: 303, headers: { Location: callback.href }, body: '' });
+    });
+    await page.goto(path + '/channels');
+    await page.getByRole('button', { name: 'Authorize or reconnect Instagram (no Facebook Page)' }).click();
+    await expect(page.getByRole('status')).toHaveText('Channel connected.');
+    const channel = await prisma.channel.findFirstOrThrow({ where: { workspaceId: workspace.id, provider: 'instagram-direct' }, include: { credential: true } });
+    expect(channel.externalId).toBe('17841400000000001');
+    expect(channel.name).toBe('@direct.studio');
+    expect(channel.credential?.accessToken).not.toContain('fixture-ig-long');
+    expect(channel.credential!.accessExpiresAt.getTime()).toBeGreaterThan(Date.now() + 50 * 86_400_000);
+    await expect(page.locator('.channel-card', { hasText: '@direct.studio' })).toContainText('Authorized');
+  } finally {
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { email } });
+    await prisma.$disconnect();
+  }
+});

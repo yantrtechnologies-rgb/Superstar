@@ -2,6 +2,20 @@ const originalFetch = globalThis.fetch;
 
 globalThis.fetch = async (input, init) => {
   const url = new URL(input instanceof Request ? input.url : input);
+  // Instagram Login (instagram-direct): code exchange, long-lived token, then the account profile.
+  if (url.origin === 'https://api.instagram.com' && url.pathname === '/oauth/access_token') {
+    if (init?.body?.get?.('code') !== 'fixture-instagram-code' || init.body.get('client_id') !== '987654321') return Response.json({ error_type: 'OAuthException' }, { status: 400 });
+    return Response.json({ data: [{ access_token: 'fixture-ig-short', user_id: '17841400000000001', permissions: 'instagram_business_basic,instagram_business_content_publish' }] });
+  }
+  if (url.origin === 'https://graph.instagram.com') {
+    if (url.pathname === '/access_token' && url.searchParams.get('access_token') === 'fixture-ig-short') {
+      return Response.json({ access_token: 'fixture-ig-long', token_type: 'bearer', expires_in: 5_184_000 });
+    }
+    if (/^\/v\d+\.\d+\/me$/.test(url.pathname) && url.searchParams.get('access_token') === 'fixture-ig-long') {
+      return Response.json({ user_id: '17841400000000001', username: 'direct.studio', account_type: 'BUSINESS' });
+    }
+    return Response.json({ error: { message: 'Unexpected Instagram fixture request', code: 100 } }, { status: 400 });
+  }
   if (url.origin !== 'https://graph.facebook.com') return originalFetch(input, init);
   const path = url.pathname.replace(/^\/v[0-9]+\.0\//, '');
   if (path === 'oauth/access_token') {

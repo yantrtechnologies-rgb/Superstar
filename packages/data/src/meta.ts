@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from './client';
+import { publishInstagramMedia } from './instagram-publish';
 import { metaConfiguration } from './meta-connection';
 import { type OAuthProviderAdapter, ProviderConfigurationError, type PublishResult } from './provider-contract';
 import { openToken } from './token-vault';
@@ -118,59 +119,14 @@ export const facebook: OAuthProviderAdapter = {
   },
 };
 
-/** Creates an Instagram media container and waits until Instagram has processed it. */
-async function instagramContainer(igUserId: string, token: string, params: Record<string, string>): Promise<{ id: string } | PublishResult> {
-  const created = await request(`${igUserId}/media`, token, new URLSearchParams(params));
-  if (created.kind !== 'ok') return created.kind === 'uncertain' ? { kind: 'failed', error: 'Instagram did not confirm a media upload; nothing was published.' } : created;
-  const container = z.object({ id: z.string().min(1) }).safeParse(created.json);
-  if (!container.success) return { kind: 'failed', error: 'Instagram did not return a media container; nothing was published.' };
-  for (let attempt = 0; attempt < 15; attempt++) {
-    const status = await request(`${container.data.id}?fields=status_code`, token);
-    if (status.kind !== 'ok') return status.kind === 'failed' ? status : {
-      kind: 'failed', error: 'Instagram created the media but its readiness could not be confirmed; nothing was published.',
-    };
-    const value = z.object({ status_code: z.string() }).safeParse(status.json);
-    if (value.success && value.data.status_code === 'FINISHED') return { id: container.data.id };
-    if (value.success && value.data.status_code === 'ERROR') return { kind: 'failed', error: 'Instagram could not process one of the images.' };
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
-  return { kind: 'failed', error: 'Instagram is still processing the images; nothing was published. Try again in a minute.' };
-}
-
 export const instagram: OAuthProviderAdapter = {
-  kind: 'oauth', name: 'Instagram professional account', textLimit: 2_200, imageCaptionLimit: 2_200, requiresImage: true,
-  // Up to 10 photos are published together as one carousel post (Instagram's limit).
-  maxImages: 10,
+  kind: 'oauth', name: 'Instagram professional account', textLimit: 2_200, imageCaptionLimit: 2_200,
+  // A photo, a carousel of up to 10 photos and videos, or one MP4 published as a Reel.
+  requiresImage: true, acceptsVideo: true, maxImages: 10,
   connectionHelp: 'Connect a professional Instagram account linked to a Facebook Page.', configured: () => Boolean(metaConfiguration()),
   async publish(_workspace, channel, _nonce, content, image, images) {
-    const photos = (images ?? (image ? [image] : [])).filter((item) => item.type.startsWith('image/') && item.url).slice(0, 10);
-    if (!photos.length) return { kind: 'failed', error: 'Instagram requires a publicly deliverable image.' };
     const token = await credentials('instagram', channel.id, channel.workspaceId);
-    let creationId: string;
-    if (photos.length > 1) {
-      // Carousel: one container per photo, then a CAROUSEL container that holds them, then publish.
-      const children: string[] = [];
-      for (const photo of photos) {
-        const child = await instagramContainer(channel.externalId, token, { image_url: photo.url!, is_carousel_item: 'true' });
-        if (!('id' in child)) return child;
-        children.push(child.id);
-      }
-      const carousel = await instagramContainer(channel.externalId, token, { media_type: 'CAROUSEL', children: children.join(','), caption: content });
-      if (!('id' in carousel)) return carousel;
-      creationId = carousel.id;
-    } else {
-      const single = await instagramContainer(channel.externalId, token, { image_url: photos[0]!.url!, caption: content });
-      if (!('id' in single)) return single;
-      creationId = single.id;
-    }
-    const result = await request(`${channel.externalId}/media_publish`, token, new URLSearchParams({ creation_id: creationId }));
-    if (result.kind !== 'ok') return result;
-    const parsed = z.object({ id: z.string().min(1) }).safeParse(result.json);
-    if (!parsed.success) return { kind: 'uncertain', error: 'Instagram published without returning a media identifier.' };
-    const details = await request(`${parsed.data.id}?fields=permalink`, token);
-    const permalink = details.kind === 'ok'
-      ? z.object({ permalink: z.url() }).safeParse(details.json).data?.permalink ?? null : null;
-    return { kind: 'published', externalId: parsed.data.id, permalink };
+    return publishInstagramMedia((path, body) => request(path, token, body), channel.externalId, content, images ?? (image ? [image] : []));
   },
 };
 

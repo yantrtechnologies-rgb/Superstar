@@ -58,7 +58,7 @@ export function Composer({ workspace, channels, groups, providers, media: initia
     const issues: string[] = [];
     if (!info) issues.push('connector unavailable');
     else {
-      if (info.requiresImage && !hasImage) issues.push('needs an image');
+      if (info.requiresImage && !hasImage && !(info.acceptsVideo && hasVideo)) issues.push(info.acceptsVideo ? 'needs an image or video' : 'needs an image');
       if (info.requiresVideo && !hasVideo) issues.push('needs an MP4 video');
       if (hasVideo && !info.acceptsVideo) issues.push('no video support');
       if (limit === null) issues.push('text-only in this connector');

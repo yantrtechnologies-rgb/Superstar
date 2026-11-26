@@ -13,6 +13,8 @@ const results: Record<string, [string, string]> = {
   'linkedin-unavailable': ['The connection did not complete', 'LinkedIn did not finish the connection. Open the link again and try once more.'],
   'youtube-unavailable': ['The connection did not complete', 'Google did not finish the connection. Open the link again and try once more.'],
   'youtube-no-channel': ['No YouTube channel', 'That Google account has no YouTube channel. Create one at youtube.com, then open the link again.'],
+  'instagram-unavailable': ['The connection did not complete', 'Instagram did not finish the connection. Allow both requested permissions, then open the link again.'],
+  'instagram-not-professional': ['A Business or Creator account is needed', 'That Instagram account is personal. In the Instagram app, switch it to Business or Creator (it is free), then open the link again.'],
   'x-unavailable': ['The connection did not complete', 'X did not finish the connection. On X, tick "I trust this app" before authorizing, then open the link again.'],
   'plan-limit': ['Nothing was connected', 'The workspace you are connecting to has reached its channel limit. Let whoever sent you the link know.'],
   invalid: ['This link is no longer valid', 'The link expired, was revoked, or this attempt timed out. Ask whoever sent it to you for a new one, or open it again.'],

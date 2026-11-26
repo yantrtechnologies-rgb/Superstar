@@ -44,6 +44,8 @@ export default defineConfig({
       META_APP_ID: '123456789',
       META_APP_SECRET: 'fixture-meta-app-secret',
       META_GRAPH_VERSION: 'v27.0',
+      INSTAGRAM_APP_ID: '987654321',
+      INSTAGRAM_APP_SECRET: 'fixture-instagram-app-secret',
       LINKEDIN_CLIENT_ID: 'playwright-linkedin-id',
       LINKEDIN_CLIENT_SECRET: 'playwright-linkedin-secret',
       YOUTUBE_CLIENT_ID: 'playwright-youtube-id',

@@ -59,13 +59,14 @@ export async function publishDestination(id: string): Promise<number | null> {
         if (ordered.length !== ids.length) throw new AssetStorageError('An attached media file is no longer available.');
         validateProviderPost(destination.channel.provider, text, ordered[0]?.type);
         const images: PublishingImage[] = [];
-        // Reminder channels only email a link to the media, so they skip downloading it.
-        const reminder = destination.channel.provider === 'reminder';
+        // Instagram downloads media from a signed URL, and reminder channels only link to it, so neither needs the bytes.
+        const byUrl = ['instagram', 'instagram-direct'].includes(destination.channel.provider);
+        const skipBytes = byUrl || destination.channel.provider === 'reminder';
         for (const asset of ordered) {
           images.push({
-            bytes: reminder ? new Uint8Array(0) : asset.type === 'video/mp4' ? await readVideo(asset, workspaceId) : await readImage(asset, workspaceId),
+            bytes: skipBytes ? new Uint8Array(0) : asset.type === 'video/mp4' ? await readVideo(asset, workspaceId) : await readImage(asset, workspaceId),
             type: asset.type,
-            url: destination.channel.provider === 'instagram' ? createMetaAssetUrl(asset.id, workspaceId) : undefined,
+            url: byUrl ? createMetaAssetUrl(asset.id, workspaceId) : undefined,
           });
         }
         result = await provider.publish(destination.post.workspace.slug, destination.channel, nonce, text, images[0], images);
