@@ -301,7 +301,9 @@ test('client review stays bound to the draft revision and client group slots pop
     await client.goto(revised);
     await client.getByLabel('Feedback').fill('The revised date looks right.');
     await client.getByRole('button', { name: 'Approve revision' }).click();
+    await expect(client.getByText('This revision is closed for review.')).toBeVisible();
     await page.reload();
+    await expect(post.getByText('Revision 2 · Client approved')).toBeVisible();
     await post.getByRole('button', { name: 'Use next shared slot' }).click();
     await expect(post.getByText('juniper-news · scheduled')).toBeVisible();
     // The list view shows everything upcoming, whichever month the next slot falls in.
