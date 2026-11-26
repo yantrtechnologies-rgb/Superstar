@@ -61,6 +61,5 @@ export async function mediaTypes(ids: string[]) {
 }
 
 export function MediaThumb({ src, type, className }: { src: string; type?: string; className?: string }) {
-  // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
   return type === 'video/mp4' ? <video className={className} src={src} controls preload="metadata" playsInline /> : <img className={className} src={src} alt="" loading="lazy" />;
 }

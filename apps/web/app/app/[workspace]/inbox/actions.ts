@@ -11,7 +11,7 @@ export async function replyAction(form: FormData) {
   const slug = z.string().regex(/^[a-z0-9-]{1,64}$/).safeParse(form.get('workspace'));
   if (!slug.success) redirect('/app');
   const base = `/app/${slug.data}/inbox`;
-  let status = 'replied';
+  const status = 'replied';
   try {
     await replyToComment(
       user.id, slug.data,
