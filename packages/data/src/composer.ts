@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { uploadPostAsset } from './assets';
 import { prisma } from './client';
 import { findNextPostingSlot } from './next-slot';
-import { ProviderConfigurationError } from './provider-contract';
+import { postFormats, ProviderConfigurationError, type PostFormat } from './provider-contract';
 import { getProvider, providers as providersForComposer } from './providers';
 import { canApprovePosts, canWritePosts } from './publishing';
 import { WorkspaceAccessError } from './workspaces';
@@ -24,6 +24,7 @@ export const composerInput = z.object({
   channelIds: z.array(uuid).max(20),
   content: z.string().max(10_000),
   overrides: z.record(uuid, z.string().max(10_000)).default({}),
+  formats: z.record(uuid, z.enum(postFormats)).default({}),
   thread: z.array(threadItemSchema).max(25).default([]),
   mediaIds: z.array(uuid).max(10).default([]),
   tagIds: z.array(uuid).max(20).default([]),
@@ -44,6 +45,11 @@ export function revisionOverrides(value: Prisma.JsonValue): Record<string, strin
   return z.record(z.string(), z.string()).safeParse(value).data ?? {};
 }
 
+/** Per-channel Reel/Story choices of a revision; channels not listed get a normal post. */
+export function revisionFormats(value: Prisma.JsonValue): Record<string, PostFormat> {
+  return z.record(z.string(), z.enum(postFormats)).safeParse(value).data ?? {};
+}
+
 /** Ordered media for a revision; legacy revisions only have assetId. */
 export function revisionMediaIds(revision: { mediaIds: string[]; assetId: string | null }) {
   return revision.mediaIds.length ? revision.mediaIds : revision.assetId ? [revision.assetId] : [];
@@ -58,7 +64,7 @@ async function member(tx: Prisma.TransactionClient, userId: string, slug: string
 /** Per-channel problems for a draft; empty when every selected channel can publish it. */
 export async function checkComposer(
   tx: Prisma.TransactionClient, workspaceId: string,
-  draft: { channelIds: string[]; content: string; overrides: Record<string, string>; thread: ThreadItem[]; mediaIds: string[] },
+  draft: { channelIds: string[]; content: string; overrides: Record<string, string>; thread: ThreadItem[]; mediaIds: string[]; formats?: Record<string, PostFormat> },
 ) {
   const [channels, media] = await Promise.all([
     tx.channel.findMany({ where: { workspaceId, id: { in: draft.channelIds } }, select: { id: true, name: true, provider: true } }),
@@ -75,6 +81,10 @@ export async function checkComposer(
     const first = types[0];
     const hasImage = first?.startsWith('image/') ?? false;
     const hasVideo = first?.startsWith('video/') ?? false;
+    const format = draft.formats?.[channel.id] ?? 'post';
+    if (format !== 'post' && !provider.formats?.includes(format)) problems.push(`${channel.name}: ${provider.name} can't publish a ${format}.`);
+    if (format === 'reel' && !hasVideo) problems.push(`${channel.name}: a Reel needs an MP4 video as the first media file.`);
+    if (format === 'story' && !hasImage && !hasVideo) problems.push(`${channel.name}: a Story needs a photo or video.`);
     if (provider.requiresImage && !hasImage && !(provider.acceptsVideo && hasVideo)) {
       problems.push(`${channel.name}: ${provider.name} needs an image${provider.acceptsVideo ? ' or video' : ''}.`);
     }
@@ -102,6 +112,7 @@ export async function saveComposerPost(userId: string, slug: string, raw: Compos
   const channelIds = [...new Set(input.channelIds)].sort();
   const overrides = Object.fromEntries(Object.entries(input.overrides)
     .filter(([id, text]) => channelIds.includes(id) && text.trim() && text !== input.content));
+  const formats = Object.fromEntries(Object.entries(input.formats).filter(([id, format]) => channelIds.includes(id) && format !== 'post'));
   if (!input.content.trim() && !channelIds.some((id) => overrides[id])) throw new WorkspaceAccessError('Write the post text first.');
   if (input.intent !== 'draft' && !channelIds.length) throw new WorkspaceAccessError('Choose at least one channel.');
 
@@ -112,7 +123,7 @@ export async function saveComposerPost(userId: string, slug: string, raw: Compos
     const tags = input.tagIds.length ? await tx.tag.count({ where: { workspaceId, id: { in: input.tagIds } } }) : 0;
     if (tags !== new Set(input.tagIds).size) throw new WorkspaceAccessError('A selected tag is unavailable.');
     const fields = {
-      content: input.content, overrides, thread: input.thread, mediaIds: input.mediaIds, assetId: input.mediaIds[0] ?? null,
+      content: input.content, overrides, formats, thread: input.thread, mediaIds: input.mediaIds, assetId: input.mediaIds[0] ?? null,
       channelIds, followUpText: null, followUpDelayMinutes: null,
     };
 
@@ -139,7 +150,7 @@ export async function saveComposerPost(userId: string, slug: string, raw: Compos
 
     if (input.intent === 'draft') return { postId, revision, state: 'DRAFT' as const };
 
-    const problems = await checkComposer(tx, workspaceId, { channelIds, content: input.content, overrides, thread: input.thread, mediaIds: input.mediaIds });
+    const problems = await checkComposer(tx, workspaceId, { channelIds, content: input.content, overrides, formats, thread: input.thread, mediaIds: input.mediaIds });
     if (problems.length) throw new ProviderConfigurationError(problems.join(' '));
     await tx.post.update({ where: { id: postId }, data: { state: 'IN_REVIEW' } });
     await tx.auditEvent.create({ data: { workspaceId, actorId: userId, subjectId: postId, action: 'post.submitted' } });
@@ -176,7 +187,7 @@ export async function loadComposerPost(userId: string, slug: string, postId: str
   return {
     id: post.id, revision: post.revision, state: post.state, scheduledAt: post.scheduledAt, repeatEveryDays: post.repeatEveryDays,
     content: latest.content, channelIds: latest.channelIds, overrides: revisionOverrides(latest.overrides),
-    thread: revisionThread(latest), mediaIds: revisionMediaIds(latest), tagIds: post.tags.map(({ tagId }) => tagId),
+    formats: revisionFormats(latest.formats), thread: revisionThread(latest), mediaIds: revisionMediaIds(latest), tagIds: post.tags.map(({ tagId }) => tagId),
   };
 }
 
@@ -212,7 +223,7 @@ export async function duplicatePost(userId: string, slug: string, postId: string
     const copy = await tx.post.create({ data: {
       workspaceId, repeatEveryDays: post.repeatEveryDays,
       revisions: { create: {
-        number: 1, content: latest.content, overrides: latest.overrides ?? {}, thread: latest.thread ?? [], mediaIds: latest.mediaIds,
+        number: 1, content: latest.content, overrides: latest.overrides ?? {}, formats: latest.formats ?? {}, thread: latest.thread ?? [], mediaIds: latest.mediaIds,
         assetId: latest.assetId, channelIds: latest.channelIds, followUpText: latest.followUpText, followUpDelayMinutes: latest.followUpDelayMinutes,
       } },
       tags: { create: post.tags.map(({ tagId }) => ({ tagId })) },
@@ -359,6 +370,6 @@ export function mediaFile(userId: string, slug: string, id: string) {
 export function composerProviders() {
   return Object.fromEntries(Object.entries(providersForComposer).map(([id, p]) => [id, {
     name: p.name, textLimit: p.textLimit, imageCaptionLimit: p.imageCaptionLimit, maxImages: p.maxImages ?? 1, splitsLongText: Boolean(p.splitsLongText),
-    thread: Boolean(p.reply), requiresImage: Boolean(p.requiresImage), requiresVideo: Boolean(p.requiresVideo), acceptsVideo: Boolean(p.acceptsVideo),
+    formats: [...(p.formats ?? [])], thread: Boolean(p.reply), requiresImage: Boolean(p.requiresImage), requiresVideo: Boolean(p.requiresVideo), acceptsVideo: Boolean(p.acceptsVideo),
   }]));
 }

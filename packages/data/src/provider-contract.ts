@@ -3,6 +3,10 @@ export type ProviderId = (typeof providerIds)[number];
 
 export class ProviderConfigurationError extends Error {}
 
+/** How a post goes out on a channel: a normal post, a Reel or a Story. */
+export const postFormats = ['post', 'reel', 'story'] as const;
+export type PostFormat = (typeof postFormats)[number];
+
 export type PublishResult =
   | { kind: 'published'; externalId: string; permalink: string | null }
   | { kind: 'retry'; delayMs: number }
@@ -23,9 +27,11 @@ type PublishingProvider = {
   /** Text over the limit is published as a numbered thread instead of being rejected. */
   splitsLongText?: boolean;
   connectionHelp: string;
+  /** Formats besides a normal post that this network can publish (chosen per channel in the composer). */
+  formats?: readonly Exclude<PostFormat, 'post'>[];
   publish(
     workspace: string, channel: PublishChannel,
-    nonce: string, content: string, image?: PublishingImage, images?: PublishingImage[],
+    nonce: string, content: string, image?: PublishingImage, images?: PublishingImage[], options?: { format?: PostFormat },
   ): Promise<PublishResult>;
   /** Publishes a follow-up as a reply/comment/thread item under parentId. Absent = no thread support. */
   reply?(workspace: string, channel: PublishChannel, nonce: string, content: string, parentId: string): Promise<PublishResult>;

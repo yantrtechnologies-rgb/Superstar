@@ -181,13 +181,13 @@ export async function disconnectInstagramDirect(userId: string, slug: string, ch
 
 export const instagramDirect: OAuthProviderAdapter = {
   kind: 'oauth', name: 'Instagram (no Facebook Page)', textLimit: 2_200, imageCaptionLimit: 2_200,
-  requiresImage: true, acceptsVideo: true, maxImages: 10, configured: instagramDirectConfigured,
+  requiresImage: true, acceptsVideo: true, maxImages: 10, formats: ['story'], configured: instagramDirectConfigured,
   connectionHelp: 'Sign in with Instagram to connect a Business or Creator account directly, with no Facebook Page needed. Posts photos, carousels and Reels.',
-  async publish(_workspace, channel, _nonce, content, image, images) {
+  async publish(_workspace, channel, _nonce, content, image, images, options) {
     const config = settings();
     if (!config) return { kind: 'failed', error: 'Instagram Login is not configured on this server.' };
     const token = await access(channel.id, channel.workspaceId);
     if (!token) return { kind: 'failed', error: 'The Instagram authorization expired. Reconnect the account.' };
-    return publishInstagramMedia(caller(token, config.version), channel.externalId, content, images ?? (image ? [image] : []));
+    return publishInstagramMedia(caller(token, config.version), channel.externalId, content, images ?? (image ? [image] : []), options?.format);
   },
 };

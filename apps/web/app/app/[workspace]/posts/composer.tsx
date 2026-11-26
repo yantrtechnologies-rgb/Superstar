@@ -6,13 +6,15 @@ import { saveComposerAction, saveSetAction, uploadMediaAction } from './composer
 
 export type ProviderInfo = {
   name: string; textLimit: number; imageCaptionLimit: number | null; maxImages: number; thread: boolean; splitsLongText?: boolean;
-  requiresImage: boolean; requiresVideo: boolean; acceptsVideo: boolean;
+  requiresImage: boolean; requiresVideo: boolean; acceptsVideo: boolean; formats: ('reel' | 'story')[];
 };
+type PostFormat = 'post' | 'reel' | 'story';
+const formatNames: Record<PostFormat, string> = { post: 'Post', reel: 'Reel', story: 'Story' };
 export type ComposerChannel = { id: string; name: string; provider: string; groupId: string | null };
 export type ComposerMedia = { id: string; type: string; label: string | null; alt: string | null };
 type ThreadItem = { content: string; delayMinutes: number };
 type SetData = { channelIds: string[]; content: string; overrides: Record<string, string>; thread: ThreadItem[]; tagIds: string[]; repeatEveryDays: number | null };
-export type ComposerInitial = SetData & { id?: string; revision?: number; mediaIds: string[]; scheduledAt?: string | null };
+export type ComposerInitial = SetData & { id?: string; revision?: number; mediaIds: string[]; scheduledAt?: string | null; formats?: Record<string, PostFormat> };
 
 const repeatOptions = [[null, 'Does not repeat'], [1, 'Every day'], [2, 'Every 2 days'], [3, 'Every 3 days'], [7, 'Every week'], [14, 'Every 2 weeks'], [30, 'Every 30 days']] as const;
 const marks: Record<string, string> = { facebook: 'f', instagram: 'ig', linkedin: 'in', youtube: '▶', x: 'X', telegram: 'tg', discord: 'dc' };
@@ -33,6 +35,7 @@ export function Composer({ workspace, channels, groups, providers, media: initia
   const [group, setGroup] = useState('');
   const [content, setContent] = useState(initial.content);
   const [overrides, setOverrides] = useState<Record<string, string>>(initial.overrides);
+  const [formats, setFormats] = useState<Record<string, PostFormat>>(initial.formats ?? {});
   const [tab, setTab] = useState<string>('global');
   const [thread, setThread] = useState<ThreadItem[]>(initial.thread);
   const [mediaIds, setMediaIds] = useState<string[]>(initial.mediaIds);
@@ -56,8 +59,11 @@ export function Composer({ workspace, channels, groups, providers, media: initia
     const hasVideo = firstType.startsWith('video/');
     const limit = info ? (hasImage || hasVideo ? info.imageCaptionLimit : info.textLimit) : null;
     const issues: string[] = [];
+    const format = formats[channel.id] ?? 'post';
     if (!info) issues.push('connector unavailable');
     else {
+      if (format === 'reel' && !hasVideo) issues.push('a Reel needs an MP4 video first');
+      if (format === 'story' && !hasImage && !hasVideo) issues.push('a Story needs a photo or video');
       if (info.requiresImage && !hasImage && !(info.acceptsVideo && hasVideo)) issues.push(info.acceptsVideo ? 'needs an image or video' : 'needs an image');
       if (info.requiresVideo && !hasVideo) issues.push('needs an MP4 video');
       if (hasVideo && !info.acceptsVideo) issues.push('no video support');
@@ -67,10 +73,12 @@ export function Composer({ workspace, channels, groups, providers, media: initia
     const notes: string[] = [];
     if (info && mediaIds.length > info.maxImages) notes.push(`publishes the first ${info.maxImages === 1 ? 'file' : `${info.maxImages} files`}`);
     if (info && thread.length && !info.thread) notes.push('thread items are skipped');
+    if (format === 'story') notes.push('posted as a Story: only the first photo or video, and the text isn\'t shown');
+    if (format === 'reel') notes.push('posted as a Reel');
     const long = limit !== null && text.length > limit;
     if (long && info?.splitsLongText) notes.push(`over ${limit}: posts in full if the account has X Premium, otherwise as a numbered thread`);
     return { channel, info, text, limit, over: long && !info?.splitsLongText, issues, notes };
-  }), [chosen, providers, overrides, content, firstType, mediaIds.length, thread.length]);
+  }), [chosen, providers, overrides, formats, content, firstType, mediaIds.length, thread.length]);
   const blocking = checks.some(({ issues, over }) => issues.length || over);
 
   function toggle(id: string) {
@@ -106,7 +114,7 @@ export function Composer({ workspace, channels, groups, providers, media: initia
     setError(null); setNotice(null);
     start(async () => {
       const result = await saveComposerAction(workspace, {
-        postId: initial.id, revision: initial.revision, channelIds: selected, content, overrides, thread, mediaIds, tagIds,
+        postId: initial.id, revision: initial.revision, channelIds: selected, content, overrides, formats, thread, mediaIds, tagIds,
         repeatEveryDays: repeat, intent, scheduledAt: intent === 'schedule' ? new Date(when).toISOString() : undefined,
       });
       if (!result.ok) { setError(result.error); return; }
@@ -198,6 +206,22 @@ export function Composer({ workspace, channels, groups, providers, media: initia
                     }
                   }}>Back to shared text</button></>}
             </p>
+          )}
+          {activeChannel && (providers[activeChannel.provider]?.formats.length ?? 0) > 0 && (
+            <div className="composer-inline">
+              <label className="field-label" htmlFor="post-format">Post to {activeChannel.name} as</label>
+              <select id="post-format" value={formats[activeChannel.id] ?? 'post'} onChange={(event) => {
+                const value = event.target.value as PostFormat;
+                setFormats((all) => value === 'post'
+                  ? Object.fromEntries(Object.entries(all).filter(([id]) => id !== activeChannel.id))
+                  : { ...all, [activeChannel.id]: value });
+              }}>
+                {(['post', ...providers[activeChannel.provider]!.formats] as PostFormat[]).map((value) => <option key={value} value={value}>{formatNames[value]}</option>)}
+              </select>
+            </div>
+          )}
+          {!activeChannel && chosen.some(({ provider }) => (providers[provider]?.formats.length ?? 0) > 0) && (
+            <p className="composer-hint">To post as a Reel or Story, open that channel&apos;s tab above.</p>
           )}
           <label className="sr-only" htmlFor="composer-text">Post text</label>
           <textarea

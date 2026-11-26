@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from './client';
 import { publishInstagramMedia } from './instagram-publish';
 import { metaConfiguration } from './meta-connection';
-import { type OAuthProviderAdapter, ProviderConfigurationError, type PublishResult } from './provider-contract';
+import { type OAuthProviderAdapter, ProviderConfigurationError, type PublishingImage, type PublishResult } from './provider-contract';
 import { openToken } from './token-vault';
 
 const graphError = z.object({ error: z.object({
@@ -56,11 +56,83 @@ function published(json: unknown, permalink: (id: string) => string | null): Pub
   return { kind: 'published', externalId: id, permalink: permalink(id) };
 }
 
+/** Sends a video's bytes to the upload URL Meta returned when a Reel or video Story upload started. */
+async function uploadVideo(uploadUrl: string, token: string, bytes: Uint8Array<ArrayBuffer>) {
+  if (!/^https:\/\/rupload\.facebook\.com\//.test(uploadUrl)) return false;
+  try {
+    const response = await fetch(uploadUrl, {
+      method: 'POST', body: bytes, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(150_000),
+      headers: { Authorization: `OAuth ${token}`, offset: '0', file_size: String(bytes.byteLength) },
+    });
+    const json = await response.json().catch(() => ({})) as { success?: boolean };
+    return response.ok && json.success === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Starts a Reel or video Story upload, sends the video, and returns its id (start → upload → finish). */
+async function startVideoUpload(pageId: string, edge: 'video_reels' | 'video_stories', token: string, video: PublishingImage) {
+  const started = await request(`${pageId}/${edge}`, token, new URLSearchParams({ upload_phase: 'start' }));
+  if (started.kind !== 'ok') return started.kind === 'uncertain' ? { kind: 'failed', error: 'Meta did not confirm the video upload started; nothing was published.' } as const : started;
+  const session = z.object({ video_id: z.string().min(1), upload_url: z.url() }).safeParse(started.json);
+  if (!session.success) return { kind: 'failed', error: 'Meta did not return an upload session; nothing was published.' } as const;
+  if (!await uploadVideo(session.data.upload_url, token, video.bytes)) {
+    return { kind: 'failed', error: 'Meta did not accept the video upload; nothing was published.' } as const;
+  }
+  return { kind: 'uploaded', id: session.data.video_id } as const;
+}
+
+async function facebookReel(pageId: string, token: string, content: string, video: PublishingImage): Promise<PublishResult> {
+  const uploaded = await startVideoUpload(pageId, 'video_reels', token, video);
+  if (uploaded.kind !== 'uploaded') return uploaded;
+  const finished = await request(`${pageId}/video_reels`, token, new URLSearchParams({
+    upload_phase: 'finish', video_id: uploaded.id, video_state: 'PUBLISHED', description: content,
+  }));
+  if (finished.kind !== 'ok') return finished.kind === 'uncertain'
+    ? { kind: 'uncertain', error: 'Meta did not confirm the Reel was published. Check the Page before retrying.' } : finished;
+  return { kind: 'published', externalId: uploaded.id, permalink: `https://www.facebook.com/reel/${uploaded.id}` };
+}
+
+async function facebookStory(pageId: string, token: string, item: PublishingImage): Promise<PublishResult> {
+  let finished: Awaited<ReturnType<typeof request>>;
+  if (item.type === 'video/mp4') {
+    const uploaded = await startVideoUpload(pageId, 'video_stories', token, item);
+    if (uploaded.kind !== 'uploaded') return uploaded;
+    finished = await request(`${pageId}/video_stories`, token, new URLSearchParams({ upload_phase: 'finish', video_id: uploaded.id }));
+  } else {
+    // A photo Story is an unpublished photo, then posted to the Page's Stories.
+    const form = new FormData();
+    form.set('published', 'false');
+    form.set('source', new Blob([item.bytes], { type: item.type }), item.type === 'image/png' ? 'story.png' : 'story.jpg');
+    const photo = await request(`${pageId}/photos`, token, form);
+    if (photo.kind !== 'ok') return photo.kind === 'uncertain' ? { kind: 'failed', error: 'Meta did not confirm the photo upload; nothing was published.' } : photo;
+    const id = z.object({ id: z.string().min(1) }).safeParse(photo.json);
+    if (!id.success) return { kind: 'failed', error: 'Meta did not return a photo identifier; nothing was published.' };
+    finished = await request(`${pageId}/photo_stories`, token, new URLSearchParams({ photo_id: id.data.id }));
+  }
+  if (finished.kind !== 'ok') return finished.kind === 'uncertain'
+    ? { kind: 'uncertain', error: 'Meta did not confirm the Story was published. Check the Page before retrying.' } : finished;
+  const story = z.object({ post_id: z.string().min(1) }).safeParse(finished.json);
+  return story.success
+    ? { kind: 'published', externalId: story.data.post_id, permalink: null }
+    : { kind: 'uncertain', error: 'Meta accepted the Story without returning an identifier.' };
+}
+
 export const facebook: OAuthProviderAdapter = {
   kind: 'oauth', name: 'Facebook Page', textLimit: 63_206, imageCaptionLimit: 63_206, maxImages: 10, acceptsVideo: true,
+  formats: ['reel', 'story'],
   connectionHelp: 'Connect a Facebook Page and grant pages_manage_posts.', configured: () => Boolean(metaConfiguration()),
-  async publish(_workspace, channel, _nonce, content, image, images) {
+  async publish(_workspace, channel, _nonce, content, image, images, options) {
     const token = await credentials('facebook', channel.id, channel.workspaceId);
+    if (options?.format === 'reel') {
+      if (image?.type !== 'video/mp4') return { kind: 'failed', error: 'A Facebook Reel needs an MP4 video.' };
+      return facebookReel(channel.externalId, token, content, image);
+    }
+    if (options?.format === 'story') {
+      if (!image) return { kind: 'failed', error: 'A Facebook Story needs a photo or video.' };
+      return facebookStory(channel.externalId, token, image);
+    }
     if (image?.type === 'video/mp4') {
       // A video post: the MP4 is uploaded to the Page's videos with the post text as its description.
       const form = new FormData();
@@ -122,11 +194,11 @@ export const facebook: OAuthProviderAdapter = {
 export const instagram: OAuthProviderAdapter = {
   kind: 'oauth', name: 'Instagram professional account', textLimit: 2_200, imageCaptionLimit: 2_200,
   // A photo, a carousel of up to 10 photos and videos, or one MP4 published as a Reel.
-  requiresImage: true, acceptsVideo: true, maxImages: 10,
+  requiresImage: true, acceptsVideo: true, maxImages: 10, formats: ['story'],
   connectionHelp: 'Connect a professional Instagram account linked to a Facebook Page.', configured: () => Boolean(metaConfiguration()),
-  async publish(_workspace, channel, _nonce, content, image, images) {
+  async publish(_workspace, channel, _nonce, content, image, images, options) {
     const token = await credentials('instagram', channel.id, channel.workspaceId);
-    return publishInstagramMedia((path, body) => request(path, token, body), channel.externalId, content, images ?? (image ? [image] : []));
+    return publishInstagramMedia((path, body) => request(path, token, body), channel.externalId, content, images ?? (image ? [image] : []), options?.format);
   },
 };
 

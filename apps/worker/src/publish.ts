@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
-  createMetaAssetUrl, enqueuePublishedWebhooks, getProvider, prisma, readImage, readVideo, revisionMediaIds, revisionOverrides,
+  createMetaAssetUrl, enqueuePublishedWebhooks, getProvider, prisma, readImage, readVideo, revisionFormats, revisionMediaIds, revisionOverrides,
   revisionThread, validateProviderPost, AssetStorageError, ProviderConfigurationError, type PublishingImage, type PublishResult,
 } from '@cadencedesk/data';
 import type { Prisma } from '@cadencedesk/data';
@@ -69,7 +69,8 @@ export async function publishDestination(id: string): Promise<number | null> {
             url: byUrl ? createMetaAssetUrl(asset.id, workspaceId) : undefined,
           });
         }
-        result = await provider.publish(destination.post.workspace.slug, destination.channel, nonce, text, images[0], images);
+        const format = revisionFormats(revision.formats)[destination.channelId] ?? 'post';
+        result = await provider.publish(destination.post.workspace.slug, destination.channel, nonce, text, images[0], images, { format });
       } else {
         const index = Math.max(1, destination.threadIndex);
         const item = thread[index - 1];
@@ -230,7 +231,7 @@ async function scheduleRepeat(tx: Prisma.TransactionClient, postId: string) {
   const copy = await tx.post.create({ data: {
     workspaceId: post.workspaceId, state: 'SCHEDULED', scheduledAt: dueAt, repeatEveryDays: post.repeatEveryDays, repeatSourceId: post.id,
     revisions: { create: {
-      number: 1, content: latest.content, overrides: latest.overrides ?? {}, thread: latest.thread ?? [], mediaIds: latest.mediaIds,
+      number: 1, content: latest.content, overrides: latest.overrides ?? {}, formats: latest.formats ?? {}, thread: latest.thread ?? [], mediaIds: latest.mediaIds,
       assetId: latest.assetId, channelIds: latest.channelIds, followUpText: latest.followUpText, followUpDelayMinutes: latest.followUpDelayMinutes,
     } },
     tags: { create: post.tags.map(({ tagId }) => ({ tagId })) },

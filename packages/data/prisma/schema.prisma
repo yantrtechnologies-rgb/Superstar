@@ -240,6 +240,8 @@ model PostRevision {
   overrides Json @default("{}")
   /// Follow-up thread items published as replies: [{ content, delayMinutes }].
   thread    Json @default("[]")
+  /// Per-channel format other than a normal post: { [channelId]: "reel" | "story" }.
+  formats   Json @default("{}")
 
   @@id([postId, number])
   @@map("post_revisions")

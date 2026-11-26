@@ -26,7 +26,7 @@ export async function ComposerPage({ workspace, postId, status }: { workspace: s
   const defaultSignature = content.signatures.find(({ isDefault }) => isDefault);
   const initial: ComposerInitial = existing ? {
     id: existing.id, revision: existing.revision, channelIds: existing.channelIds, content: existing.content, overrides: existing.overrides,
-    thread: existing.thread, mediaIds: existing.mediaIds, tagIds: existing.tagIds, repeatEveryDays: existing.repeatEveryDays,
+    formats: existing.formats, thread: existing.thread, mediaIds: existing.mediaIds, tagIds: existing.tagIds, repeatEveryDays: existing.repeatEveryDays,
     scheduledAt: existing.scheduledAt?.toISOString() ?? null,
   } : {
     channelIds: [], content: defaultSignature ? `\n\n${defaultSignature.content}` : '', overrides: {}, thread: [], mediaIds: [], tagIds: [],

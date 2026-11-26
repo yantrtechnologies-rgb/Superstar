@@ -43,3 +43,10 @@ test('Instagram refuses a post with no deliverable media without calling the API
   assert.equal(result.kind, 'failed');
   assert.equal(calls.length, 0);
 });
+
+test('a Story is one photo or video with no caption', async () => {
+  const { calls, call } = graph();
+  await publishInstagramMedia(call, '1784', 'Ignored caption', [media('video/mp4', 'https://cdn.example/s.mp4'), media('image/jpeg', 'https://cdn.example/x.jpg')], 'story');
+  const created = calls.filter(({ path }) => path === '1784/media').map(({ body }) => body);
+  assert.deepEqual(created, [{ media_type: 'STORIES', video_url: 'https://cdn.example/s.mp4' }]);
+});

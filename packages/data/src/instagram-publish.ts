@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { PublishingImage, PublishResult } from './provider-contract';
+import type { PostFormat, PublishingImage, PublishResult } from './provider-contract';
 
 /** One Graph API call: GET when there is no body. Both Instagram connections (via a Facebook Page, or Instagram Login) use it. */
 export type InstagramCall = (path: string, body?: URLSearchParams) => Promise<
@@ -34,11 +34,21 @@ async function container(call: InstagramCall, igUserId: string, params: Record<s
  * Publishes a photo, a carousel (up to 10 photos and videos) or a Reel (one video). Media reach Instagram as
  * short-lived signed URLs, because Instagram downloads them itself.
  */
-export async function publishInstagramMedia(call: InstagramCall, igUserId: string, content: string, media: PublishingImage[]): Promise<PublishResult> {
+export async function publishInstagramMedia(
+  call: InstagramCall, igUserId: string, content: string, media: PublishingImage[], format: PostFormat = 'post',
+): Promise<PublishResult> {
   const items = media.filter((item) => item.url && (item.type.startsWith('image/') || item.type === 'video/mp4')).slice(0, 10);
   if (!items.length) return { kind: 'failed', error: 'Instagram requires a publicly deliverable image or video.' };
   let creationId: string;
-  if (items.length > 1) {
+  if (format === 'story') {
+    // A Story is one photo or video; Instagram doesn't take a caption for Stories.
+    const [item] = items as [PublishingImage];
+    const video = item.type === 'video/mp4';
+    const story = await container(call, igUserId, video
+      ? { media_type: 'STORIES', video_url: item.url! } : { media_type: 'STORIES', image_url: item.url! }, video);
+    if (!('id' in story)) return story;
+    creationId = story.id;
+  } else if (items.length > 1) {
     const children: string[] = [];
     for (const item of items) {
       const video = item.type === 'video/mp4';
