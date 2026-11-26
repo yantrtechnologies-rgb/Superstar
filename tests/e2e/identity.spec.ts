@@ -40,6 +40,35 @@ async function createWorkspace(page: Page, name: string) {
   return new URL(page.url()).pathname;
 }
 
+/** The composer's channel toggles (buttons with aria-pressed). */
+function composerChannel(page: Page, name: string | RegExp) {
+  return page.getByRole('group', { name: 'Channels to publish to' }).getByRole('button', { name, exact: typeof name === 'string' });
+}
+
+/** Opens the composer, writes the text and selects the channels. */
+async function composePost(page: Page, path: string, text: string, channels: string[]) {
+  await page.goto(path + '/posts/new');
+  await page.locator('#composer-text').fill(text);
+  for (const name of channels) {
+    await composerChannel(page, name).click();
+    await expect(composerChannel(page, name)).toHaveAttribute('aria-pressed', 'true');
+  }
+}
+
+/** Fills the Automations feed form with the allowlisted test feed instead of the default Google News search. */
+async function addOwnFeed(page: Page, topic: string) {
+  await page.getByLabel('Your topic of interest').fill(topic);
+  await page.getByRole('checkbox', { name: /^Google News/ }).uncheck();
+  await page.getByRole('checkbox', { name: /^My own feed link/ }).check();
+  await page.getByLabel('Your feed link', { exact: true }).fill('https://news.example.invalid/feed.xml');
+}
+
+/** A datetime-local value in the browser's (here: this machine's) time zone. */
+function localInput(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 test('magic link, invitations, workspace switching, and tenant isolation', async ({ browser, page }) => {
   const run = randomUUID();
   const owner = `owner-${run}@example.invalid`;
@@ -127,20 +156,21 @@ test('compose, approve and schedule a post from the workspace on mobile', async 
         externalId: '123456789012345671', guildId: '123456789012345670',
       },
     });
-    await page.getByRole('link', { name: 'Posts', exact: true }).click();
-    await page.getByLabel('Post text', { exact: true }).fill('Tomorrow’s studio update');
-    await page.getByRole('button', { name: 'Create draft' }).click();
-    const draft = page.getByRole('article');
-    await draft.getByLabel('#studio-news').check();
-    await draft.getByRole('button', { name: 'Request approval' }).click();
-    await draft.getByRole('button', { name: 'Approve revision' }).click();
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60_000).toISOString().slice(0, 16);
-    await draft.getByLabel('Schedule time (UTC)').fill(tomorrow);
-    await draft.getByRole('button', { name: 'Schedule', exact: true }).click();
-    await expect(draft.getByText('#studio-news · scheduled')).toBeVisible();
-    await page.getByRole('link', { name: 'Agenda', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Publishing agenda' })).toBeVisible();
-    await expect(page.getByText('Tomorrow’s studio update')).toBeVisible();
+    const menu = page.getByRole('navigation', { name: 'Workspace navigation' });
+    await menu.getByRole('link', { name: 'Posts', exact: true }).click();
+    await page.getByRole('link', { name: '+ Create post', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Create post' })).toBeVisible();
+    await page.locator('#composer-text').fill('Tomorrow’s studio update');
+    await composerChannel(page, 'studio-news').click();
+    // The composer's date field is in the browser's time zone. Scheduling as an owner approves the revision too.
+    await page.getByLabel('Date and time').fill(localInput(new Date(Date.now() + 24 * 60 * 60_000)));
+    await page.getByRole('button', { name: 'Schedule', exact: true }).click();
+    await expect(page).toHaveURL(/\/calendar\?status=scheduled$/);
+    await expect(page.getByRole('heading', { name: 'Calendar', exact: true })).toBeVisible();
+    await page.getByRole('navigation', { name: 'Calendar view' }).getByRole('link', { name: 'List' }).click();
+    await expect(page.getByRole('link', { name: /Tomorrow’s studio update/ })).toBeVisible();
+    await menu.getByRole('link', { name: 'Posts', exact: true }).click();
+    await expect(page.getByRole('article').getByText('studio-news · scheduled')).toBeVisible();
   } finally {
     await prisma.workspace.delete({ where: { id: workspace.id } });
     await prisma.user.delete({ where: { email } });
@@ -165,7 +195,7 @@ test('connect and disconnect a LinkedIn profile through the OAuth callback', asy
       await route.fulfill({ status: 303, headers: { Location: callback.href }, body: '' });
     });
     await page.getByRole('link', { name: 'Channels', exact: true }).click();
-    await page.getByRole('button', { name: 'Authorize or reconnect LinkedIn profile' }).click();
+    await page.getByRole('button', { name: 'Authorize or reconnect LinkedIn', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('Channel connected.');
     await expect(page.getByText('Authorized', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Disconnect Browser Fixture Member' }).click();
@@ -207,11 +237,9 @@ test('connect YouTube and X through their OAuth callbacks and enable destination
     await expect.poll(() => prisma.channel.count({
       where: { workspaceId: workspace.id, provider: { in: ['youtube', 'x'] } },
     })).toBe(2);
-    await page.goto(path + '/posts');
-    await page.getByLabel('Post text').first().fill('Connector destination verification');
-    await page.getByRole('button', { name: 'Create draft' }).click();
-    await expect(page.getByRole('checkbox', { name: /Fixture YouTube/ })).toBeEnabled();
-    await expect(page.getByRole('checkbox', { name: /@fixture_x/ })).toBeEnabled();
+    await composePost(page, path, 'Connector destination verification', []);
+    await expect(composerChannel(page, /Fixture YouTube/)).toBeEnabled();
+    await expect(composerChannel(page, /@fixture_x/)).toBeEnabled();
   } finally {
     await prisma.workspace.delete({ where: { id: workspace.id } });
     await prisma.user.delete({ where: { email } });
@@ -241,13 +269,11 @@ test('client review stays bound to the draft revision and client group slots pop
     await page.getByRole('button', { name: 'Add posting slot' }).click();
     await expect(page.getByText('Monday 09:30')).toBeVisible();
 
-    await page.goto(path + '/posts');
-    await page.getByLabel('Post text', { exact: true }).fill('Original Juniper announcement');
-    await page.getByRole('button', { name: 'Create draft' }).click();
+    await composePost(page, path, 'Original Juniper announcement', ['juniper-news']);
+    await page.getByRole('button', { name: 'Submit for approval' }).click();
+    await expect(page).toHaveURL(/\/posts\?status=in_review$/);
     const post = page.getByRole('article');
     const requestClientReview = async () => {
-      await post.getByLabel('#juniper-news').check();
-      await post.getByRole('button', { name: 'Request approval' }).click();
       await post.getByRole('button', { name: 'Create client review link' }).click();
       const input = post.getByLabel('Shareable review link');
       await expect(input).toBeVisible();
@@ -264,9 +290,11 @@ test('client review stays bound to the draft revision and client group slots pop
 
     await page.reload();
     await expect(post.getByText('Revision 1 · Client approved')).toBeVisible();
-    await post.getByLabel('Post text').fill('Juniper launches next week.');
-    await post.getByRole('button', { name: 'Save new revision' }).click();
-    await expect(post.getByRole('heading', { name: 'draft · Revision 2' })).toBeVisible();
+    await post.getByRole('link', { name: 'Edit', exact: true }).click();
+    await page.locator('#composer-text').fill('Juniper launches next week.');
+    await page.getByRole('button', { name: 'Submit for approval' }).click();
+    await expect(page).toHaveURL(/\/posts\?status=in_review$/);
+    await expect(post.getByText('Revision 2', { exact: true })).toBeVisible();
     expect((await client.goto(first))?.status()).toBe(404);
 
     const revised = await requestClientReview();
@@ -275,11 +303,13 @@ test('client review stays bound to the draft revision and client group slots pop
     await client.getByRole('button', { name: 'Approve revision' }).click();
     await page.reload();
     await post.getByRole('button', { name: 'Use next shared slot' }).click();
-    await expect(post.getByText('#juniper-news · scheduled')).toBeVisible();
-    await page.goto(path + '/calendar');
+    await expect(post.getByText('juniper-news · scheduled')).toBeVisible();
+    // The list view shows everything upcoming, whichever month the next slot falls in.
+    await page.goto(path + '/calendar?view=list');
     await page.getByLabel('Client group').selectOption({ label: 'Juniper campaign' });
-    await page.getByRole('button', { name: 'Filter agenda' }).click();
-    await expect(page.getByText('Juniper launches next week.')).toBeVisible();
+    await page.getByRole('button', { name: 'Apply' }).click();
+    await expect(page).toHaveURL(/group=/);
+    await expect(page.getByRole('link', { name: /Juniper launches next week\./ })).toBeVisible();
   } finally {
     await client.close();
     await prisma.workspace.delete({ where: { id: workspace.id } });
@@ -327,21 +357,21 @@ test('the Studio reserves and returns credits and Automations queues an approved
   const path = await createWorkspace(page, 'Field Notes Studio');
   const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
   try {
-    await page.getByRole('link', { name: 'AI Studio' }).click();
-    await expect(page.getByText('4 credits available', { exact: true })).toBeVisible();
+    const menu = page.getByRole('navigation', { name: 'Workspace navigation' });
+    await menu.getByRole('link', { name: /AI Studio/ }).click();
+    await expect(page.getByText(/^4 credits available/)).toBeVisible();
     await page.getByLabel('Copy brief or text to revise').fill('Write copy for a seasonal product release.');
     await page.getByRole('button', { name: 'Generate social copy · 4 credits' }).click();
     await expect(page.getByRole('heading', { name: 'Social copy · queued' })).toBeVisible();
-    await expect(page.getByText('0 credits available', { exact: true })).toBeVisible();
+    await expect(page.getByText(/^0 credits available/)).toBeVisible();
     await page.getByRole('button', { name: 'Cancel queued generation' }).click();
     await expect(page.getByRole('heading', { name: 'Social copy · canceled' })).toBeVisible();
-    await expect(page.getByText('4 credits available', { exact: true })).toBeVisible();
+    await expect(page.getByText(/^4 credits available/)).toBeVisible();
 
-    await page.getByRole('link', { name: 'Automations', exact: true }).click();
-    await page.getByLabel('Rule name').fill('Community headlines');
-    await page.getByLabel('Approved HTTPS feed URL').fill('https://news.example.invalid/feed.xml');
-    await page.getByRole('button', { name: 'Add RSS rule' }).click();
-    await expect(page.getByRole('heading', { name: 'Community headlines' })).toBeVisible();
+    await menu.getByRole('link', { name: 'Automations', exact: true }).click();
+    await addOwnFeed(page, 'Community headlines');
+    await page.getByRole('button', { name: 'Start these feeds' }).click();
+    await expect(page.getByRole('heading', { name: 'My feed: Community headlines' })).toBeVisible();
     await page.getByRole('button', { name: 'Run now' }).click();
     await expect(page.getByRole('list', { name: 'Recent runs' }).getByText('queued', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Pause rule' }).click();
@@ -391,7 +421,7 @@ test('Studio uploads an MP4 and queues clipping and transcription', async ({ pag
   const path = await createWorkspace(page, 'Video Studio Fixture');
   const workspace = await prisma.workspace.findUniqueOrThrow({ where: { slug: path.split('/').at(-1) } });
   try {
-    await page.getByRole('link', { name: 'AI Studio', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('link', { name: /AI Studio/ }).click();
     await page.getByLabel('MP4 video up to 20 MiB').setInputFiles({
       name: 'Studio source.mp4', mimeType: 'video/mp4',
       buffer: Buffer.from('000000186674797069736f6d0000020069736f6d6d703431', 'hex'),
@@ -404,12 +434,12 @@ test('Studio uploads an MP4 and queues clipping and transcription', async ({ pag
     await clip.getByLabel('Duration in seconds').fill('2');
     await clip.getByRole('button', { name: 'Create clip' }).click();
     await expect(page.getByRole('heading', { name: 'Clip · queued' })).toBeVisible();
-    await expect(page.getByText('4 credits available', { exact: true })).toBeVisible();
+    await expect(page.getByText(/^4 credits available/)).toBeVisible();
     const transcript = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Transcribe audio' }) });
     await transcript.getByLabel('Source video').selectOption({ label: 'Studio source.mp4' });
     await transcript.getByRole('button', { name: 'Start transcription · 4 credits' }).click();
     await expect(page.getByRole('heading', { name: 'Transcript · queued' })).toBeVisible();
-    await expect(page.getByText('0 credits available', { exact: true })).toBeVisible();
+    await expect(page.getByText(/^0 credits available/)).toBeVisible();
   } finally {
     await prisma.workspace.delete({ where: { id: workspace.id } });
     await prisma.user.delete({ where: { email } });
@@ -429,30 +459,31 @@ test('an admin can configure reviewed RSS publishing and share the approved foll
       workspaceId: workspace.id, provider: 'discord', name: 'riverside-news',
       externalId: '123456789012345671', guildId: '123456789012345670',
     } });
-    await page.getByRole('link', { name: 'Automations', exact: true }).click();
-    await page.getByLabel('Rule name').fill('Reviewed studio news');
-    await page.getByLabel('Approved HTTPS feed URL').fill('https://news.example.invalid/feed.xml');
-    await page.getByLabel('Schedule approved imports in the next shared slot').check();
-    await page.getByLabel('#riverside-news').check();
-    await page.getByRole('button', { name: 'Add RSS rule' }).click();
-    await expect(page.getByText('Schedule after approval', { exact: true })).toBeVisible();
+    await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('link', { name: 'Automations', exact: true }).click();
+    await addOwnFeed(page, 'Reviewed studio news');
+    await page.getByRole('checkbox', { name: 'riverside-news (discord)' }).check();
+    await page.getByRole('checkbox', { name: /schedule it automatically in the channels. next free posting slot/ }).check();
+    await page.getByRole('button', { name: 'Start these feeds' }).click();
+    const rule = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'My feed: Reviewed studio news' }) });
+    await expect(rule.getByText('Approved posts are scheduled automatically in the next free slot', { exact: true })).toBeVisible();
+    await expect(rule.getByText('Channels: riverside-news', { exact: true })).toBeVisible();
 
-    await page.goto(path + '/posts');
-    await page.getByLabel('Post text', { exact: true }).fill('Riverside workshop registration is open.');
-    await page.getByText('Discord follow-up', { exact: true }).click();
-    await page.getByLabel('Follow-up text').fill('Bring a notebook to the first session.');
-    await page.getByLabel('Delay in minutes').fill('10');
-    await page.getByRole('button', { name: 'Create draft' }).click();
+    // A follow-up comment is a thread item in the composer.
+    await composePost(page, path, 'Riverside workshop registration is open.', ['riverside-news']);
+    await page.getByRole('button', { name: '+ Add thread item' }).click();
+    await page.getByLabel('Item 1', { exact: true }).fill('Bring a notebook to the first session.');
+    await page.getByLabel('Wait', { exact: true }).fill('10');
+    await page.getByRole('button', { name: 'Submit for approval' }).click();
+    await expect(page).toHaveURL(/\/posts\?status=in_review$/);
     const draft = page.getByRole('article');
-    await expect(draft.getByText('Discord follow-up · 10 minutes after publication')).toBeVisible();
-    await draft.getByLabel('#riverside-news').check();
-    await draft.getByRole('button', { name: 'Request approval' }).click();
+    await draft.getByText('Thread · 1 item', { exact: true }).click();
+    await expect(draft.getByText('after 10 min', { exact: true })).toBeVisible();
     await draft.getByRole('button', { name: 'Create client review link' }).click();
     const reviewLink = draft.getByLabel('Shareable review link');
     await expect(reviewLink).toBeVisible();
     await client.goto(await reviewLink.inputValue());
     await expect(client.getByText('Bring a notebook to the first session.')).toBeVisible();
-    await expect(client.getByText('Discord follow-up · 10 minutes after publication')).toBeVisible();
+    await expect(client.getByText('Follow-up 1 · 10 minutes after publication', { exact: true })).toBeVisible();
   } finally {
     await client.close();
     await prisma.workspace.delete({ where: { id: workspace.id } });
@@ -493,7 +524,7 @@ test('pricing and billing show configured limits only to the appropriate audienc
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.getByRole('link', { name: 'View plans' }).click();
-  await expect(page.getByRole('heading', { name: 'Plans and pricing' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Simple plans for every team' })).toBeVisible();
   for (const plan of ['Free', 'Creator', 'Team', 'Agency']) {
     await expect(page.getByRole('heading', { name: plan, exact: true })).toBeVisible();
   }
@@ -502,12 +533,14 @@ test('pricing and billing show configured limits only to the appropriate audienc
   const viewer = `billing-viewer-${run}@example.invalid`;
   await signIn(page, `billing-owner-${run}@example.invalid`);
   const workspace = await createWorkspace(page, 'Billing Studio');
-  await page.getByRole('link', { name: 'Usage and billing' }).click();
-  await expect(page.getByRole('heading', { name: 'Usage and billing' })).toBeVisible();
-  await expect(page.getByText('0 credits available')).toBeVisible();
-  await expect(page.getByText('1 · 3 planned limit')).toBeVisible();
+  const menu = page.getByRole('navigation', { name: 'Workspace navigation' });
+  await menu.getByRole('link', { name: 'Usage and billing' }).click();
+  await expect(page.getByRole('heading', { name: 'Plan and billing' })).toBeVisible();
+  // The test server is self-hosted (APP_MODE is not "hosted"), so no plan limits apply.
+  await expect(page.getByRole('heading', { name: 'No plan limits' })).toBeVisible();
+  await expect(page.getByText(/^\d+ credits available\./)).toBeVisible();
 
-  await page.getByRole('link', { name: 'Team settings' }).click();
+  await menu.getByRole('link', { name: 'Team settings' }).click();
   await page.getByLabel('Email address').fill(viewer);
   await page.getByLabel('Workspace role').selectOption('VIEWER');
   await page.getByRole('button', { name: 'Send invitation' }).click();
@@ -539,8 +572,8 @@ test('the public landing and workspace navigation fit desktop and mobile', async
   await createWorkspace(page, 'Fieldwork Studio');
   const menu = page.getByRole('navigation', { name: 'Workspace navigation' });
   await expect(menu.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
-  await menu.getByRole('link', { name: 'Agenda' }).click();
-  await expect(menu.getByRole('link', { name: 'Agenda' })).toHaveAttribute('aria-current', 'page');
+  await menu.getByRole('link', { name: 'Calendar' }).click();
+  await expect(menu.getByRole('link', { name: 'Calendar' })).toHaveAttribute('aria-current', 'page');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 
@@ -601,10 +634,7 @@ test('Facebook and Instagram connections select accounts, reject replay and isol
       await expect(page.getByRole('status')).toHaveText('Channel connected.');
       const provider = kind === 'Pages' ? 'facebook' : 'instagram';
       const channel = await prisma.channel.findFirstOrThrow({ where: { workspaceId: workspace.id, provider }, include: { credential: true } });
-      await page.goto(path + '/posts');
-      await page.getByLabel('Post text').first().fill(`Destination selection for ${name}`);
-      await page.getByRole('button', { name: 'Create draft' }).click();
-      await expect(page.getByRole('checkbox', { name: new RegExp(name) }).first()).toBeEnabled();
+      await composePost(page, path, `Destination selection for ${name}`, [name]);
       expect(channel.credential!.accessToken).toMatch(/^v1\./);
       expect(channel.credential!.accessToken).not.toContain('fixture-page-token');
       await expect(saveMetaAccounts(owner.id, workspace.slug, selection, [channel.externalId])).rejects.toBeInstanceOf(WorkspaceAccessError);

@@ -339,6 +339,8 @@ export function Composer({ workspace, channels, groups, providers, media: initia
           <button type="button" className="btn" disabled={pending} onClick={saveAsSet}>Save as set</button>
           <span className="spacer" />
           {canApprove ? <>
+            {/* Puts the post in review without approving it, e.g. to send a client review link from the posts list. */}
+            <button type="button" className="btn" disabled={pending || blocking || !selected.length} onClick={() => submit('review')}>Submit for approval</button>
             <button type="button" className="btn" disabled={pending || blocking || !selected.length} onClick={() => submit('next')}>Next free slot</button>
             <button type="button" className="btn" disabled={pending || blocking || !selected.length} onClick={() => submit('now')}>Post now</button>
             <button type="button" className="btn btn-primary" disabled={pending || blocking || !selected.length} onClick={() => submit('schedule')}>
@@ -350,7 +352,7 @@ export function Composer({ workspace, channels, groups, providers, media: initia
             </button>
           )}
         </div>
-        {canApprove && <p className="muted-line">Schedule, Next free slot and Post now approve this version for you. Editors without approval rights submit for review instead.</p>}
+        {canApprove && <p className="muted-line">Schedule, Next free slot and Post now approve this version for you. Submit for approval keeps it in review, for example to send a client review link from Posts. Editors without approval rights submit for review instead.</p>}
       </div>
 
       <aside className="composer-preview" aria-label="Preview">

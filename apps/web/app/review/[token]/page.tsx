@@ -18,10 +18,12 @@ export default async function ClientReview({ params, searchParams }: {
       <p>{review.workspaceName} · Revision {review.revision}</p>
       <article className="review-preview">
         <p className="post-content">{review.content}</p>
-        {review.followUpText && <div>
-          <p>Discord follow-up · {review.followUpDelayMinutes} minutes after publication</p>
-          <p className="post-content">{review.followUpText}</p>
-        </div>}
+        {review.thread.map((item, index) => (
+          <div key={index}>
+            <p>Follow-up {index + 1} · {item.delayMinutes} minutes after {index ? 'the previous follow-up' : 'publication'}</p>
+            <p className="post-content">{item.content}</p>
+          </div>
+        ))}
         {review.asset && <img src={`/review/${token}/image`} alt="Image attached to the draft" />}
         <p>{review.channels.map(({ provider, name }) => `${getProvider(provider)?.name ?? provider} · ${name}`).join(', ')}</p>
       </article>

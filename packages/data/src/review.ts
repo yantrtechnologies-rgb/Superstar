@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from './client';
 import { canWritePosts } from './publishing';
 import { WorkspaceAccessError } from './workspaces';
+import { revisionThread } from './composer';
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
 const serializable = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable };
@@ -64,7 +65,7 @@ export async function reviewPreview(token: string) {
   const { post, revision } = link;
   const version = await prisma.postRevision.findUnique({
     where: { postId_number: { postId: post.id, number: revision } },
-    select: { content: true, channelIds: true, asset: true, followUpText: true, followUpDelayMinutes: true },
+    select: { content: true, channelIds: true, asset: true, thread: true, followUpText: true, followUpDelayMinutes: true },
   });
   if (!version) return null;
   const [comments, channels] = await Promise.all([
@@ -81,7 +82,8 @@ export async function reviewPreview(token: string) {
   return {
     workspaceName: post.workspace.name, workspaceId: post.workspaceId,
     revision, state: post.state, content: version.content, asset: version.asset, comments, channels,
-    followUpText: version.followUpText, followUpDelayMinutes: version.followUpDelayMinutes,
+    // Follow-up comments: composer posts keep them in `thread`; older revisions in the single follow-up fields.
+    thread: revisionThread(version),
   };
 }
 
