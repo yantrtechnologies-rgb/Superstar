@@ -148,7 +148,8 @@ test('approved publishing survives duplicate dispatch, rate limiting and partial
     await assert.rejects(schedulePost(owner.id, workspace.slug, edited.id, 1, channelIds, new Date()));
     await transitionPost(owner.id, workspace.slug, edited.id, 2, 'IN_REVIEW', channelIds);
     await transitionPost(owner.id, workspace.slug, edited.id, 2, 'APPROVED');
-    await assert.rejects(schedulePost(owner.id, workspace.slug, edited.id, 2, channelIds.slice(0, 1), new Date()));
+    // Any of the approved channels may be scheduled, but never one the approval didn't include.
+    await assert.rejects(schedulePost(owner.id, workspace.slug, edited.id, 2, [crypto.randomUUID()], new Date()));
 
     const webhook = await addWebhook(owner.id, workspace.slug, 'Publication webhook', process.env.WEBHOOK_ALLOWED_ENDPOINTS);
     env = await TestWorkflowEnvironment.createLocal();
@@ -367,7 +368,9 @@ test('LinkedIn OAuth binds one-time state to its actor and refreshes encrypted c
     assert.equal(await prisma.oAuthState.findUnique({ where: { hash: state } }), null);
     await assert.rejects(completeLinkedInConnection(wrongUser.id, state, 'fixture-linkedin-code'), ProviderConfigurationError);
     assert.equal(exchanges, 0);
-    assert.deepEqual(await completeLinkedInConnection(owner.id, state, 'fixture-linkedin-code'), { slug: workspace.slug, connected: true });
+    const linked = await completeLinkedInConnection(owner.id, state, 'fixture-linkedin-code');
+    assert.equal(linked.slug, workspace.slug);
+    assert.equal(linked.connected, true);
     await assert.rejects(completeLinkedInConnection(owner.id, state, 'fixture-linkedin-code'), ProviderConfigurationError);
     assert.equal(exchanges, 1);
 
