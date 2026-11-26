@@ -14,7 +14,14 @@ async function capturedMail(email: string, subject: string) {
 
 async function signIn(page: Page, email: string) {
   await page.goto('/login');
-  await page.getByLabel('Email address').fill(email);
+  // The page has a password form and a sign-in-link form, each with an "Email address" field; use the link form.
+  const field = page.locator('#email');
+  try {
+    await field.waitFor({ timeout: 15_000 });
+  } catch {
+    throw new Error('The sign-in page has no sign-in-link form. It shows: ' + (await page.locator('body').innerText()).slice(0, 600));
+  }
+  await field.fill(email);
   await page.getByRole('button', { name: 'Send sign-in link' }).click();
   await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeVisible();
   const message = await capturedMail(email, 'Your Superstar sign-in link');
@@ -541,7 +548,7 @@ test('landing channel setup survives sign-in and opens Channels in a new workspa
   await page.goto('/');
   await page.getByRole('link', { name: 'Connect your channels' }).click();
   await expect(page).toHaveURL('/login?intent=channels');
-  await page.getByLabel('Email address').fill(email);
+  await page.locator('#email').fill(email);
   await page.getByRole('button', { name: 'Send sign-in link' }).click();
   await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeVisible();
   const message = await capturedMail(email, 'Your Superstar sign-in link');
