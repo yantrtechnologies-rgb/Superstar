@@ -14,8 +14,11 @@ const identifier = z.string().regex(/^[0-9]+$/);
 const accountSchema = z.object({
   id: identifier, name: z.string().min(1), pageId: identifier, token: z.string().min(1),
 });
+// Pages Meta returned that cannot be connected, shown (disabled) with the reason instead of silently dropped.
+const unavailableSchema = z.object({ id: identifier, name: z.string(), reason: z.string() });
 const selectionSchema = z.object({
   provider: metaProvider, expiresAt: z.iso.datetime(), accounts: z.array(accountSchema).max(1000),
+  unavailable: z.array(unavailableSchema).max(1000).default([]),
 });
 
 export function metaConfiguration() {
@@ -159,14 +162,22 @@ export async function completeMetaConnection(userId: string, state: string, code
       if (item.success) pages.push(item.data);
     }
     const accounts: z.infer<typeof accountSchema>[] = [];
+    const unavailable: z.infer<typeof unavailableSchema>[] = [];
     for (const item of pages) {
-      if (!item.access_token) continue;
-      if (provider === 'facebook') accounts.push({ id: item.id, pageId: item.id, name: item.name, token: item.access_token });
+      if (!item.access_token) {
+        // Meta only issues a Page token when the person's role on that Page allows creating content.
+        unavailable.push({ id: item.id, name: item.name, reason: 'Your role on this Page does not allow publishing. Ask a Page admin for full control (or "create content" access).' });
+      } else if (provider === 'facebook') accounts.push({ id: item.id, pageId: item.id, name: item.name, token: item.access_token });
       else if (item.instagram_business_account) accounts.push({
         id: item.instagram_business_account.id, pageId: item.id,
         name: item.instagram_business_account.username || item.name, token: item.access_token,
       });
+      else unavailable.push({ id: item.id, name: item.name, reason: 'No Instagram professional account is linked to this Page.' });
     }
+    console.info(JSON.stringify({
+      event: 'meta.listed', provider, pages: pages.length, grantedPages: grantedPages.length,
+      connectable: accounts.length, unavailable: unavailable.length,
+    }));
     if (!accounts.length) {
       console.info(JSON.stringify({ event: 'meta.empty', provider, pages: pages.length, grantedPages: grantedPages.length }));
       return base + '?status=meta-empty';
@@ -177,7 +188,7 @@ export async function completeMetaConnection(userId: string, state: string, code
       hash, userId, workspaceId: grant.workspaceId, provider: 'meta-selection',
       expiresAt: new Date(Date.now() + 10 * 60_000),
       payload: sealToken(JSON.stringify({
-        provider, accounts, expiresAt: new Date(Date.now() + long.expires_in * 1000).toISOString(),
+        provider, accounts, unavailable, expiresAt: new Date(Date.now() + long.expires_in * 1000).toISOString(),
       }), 'meta-selection/' + hash),
     } });
     return base + '/meta?selection=' + selection;
@@ -201,7 +212,7 @@ async function selectionGrant(tx: Prisma.TransactionClient, userId: string, slug
 
 export async function metaAccountChoices(userId: string, slug: string, selection: string) {
   const { data } = await selectionGrant(prisma, userId, slug, selection);
-  return { provider: data.provider, accounts: data.accounts.map(({ id, name }) => ({ id, name })) };
+  return { provider: data.provider, accounts: data.accounts.map(({ id, name }) => ({ id, name })), unavailable: data.unavailable };
 }
 
 export async function saveMetaAccounts(userId: string, slug: string, selection: string, ids: string[]) {

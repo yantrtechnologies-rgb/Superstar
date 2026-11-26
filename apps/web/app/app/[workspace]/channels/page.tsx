@@ -13,7 +13,7 @@ const messages: Record<string, string> = {
   'oauth-canceled': 'Connection canceled, so nothing was connected. You can try again whenever you are ready.',
   'meta-canceled': 'Authorization canceled. You can try again when ready.',
   'meta-permissions': 'Grant the requested Page and Instagram permissions, then reconnect.',
-  'meta-empty': 'No eligible accounts were found. Use a Facebook Page you manage. Instagram requires a professional account linked to that Page.',
+  'meta-empty': 'No eligible accounts were found. Use a Facebook Page you manage (personal profiles can\'t be connected), and in the Facebook window choose "Edit access" and tick your Pages. Instagram requires a professional account linked to that Page.',
   'meta-unavailable': 'The connection could not be completed. Start again and check the app configuration and granted permissions.',
   'meta-disconnected': 'Account disconnected from this workspace.',
   disconnected: 'LinkedIn disconnected. Its publishing history is still available.',
@@ -28,7 +28,7 @@ const messages: Record<string, string> = {
 
 // How each network decides which account gets connected, so testers never connect someone else's account by accident.
 const accountNotes: Record<string, { text: string; signOut?: string }> = {
-  facebook: { text: 'Facebook asks for the password of the account signed in on this browser. If it shows someone else, choose "Not you?" or "Log in with another account". If Facebook says "Feature Unavailable", the Superstar owner needs to add you as a tester; come back here with your browser\'s Back button.' },
+  facebook: { text: 'Facebook asks for the password of the account signed in on this browser. If it shows someone else, choose "Not you?" or "Log in with another account". When Facebook lists your Pages, tick every Page you want (choose "Edit access" if it skips that step); you can connect several Pages at once. Personal profiles can\'t be connected: Facebook only lets apps post to Pages. If Facebook says "Feature Unavailable", the Superstar owner needs to add you as a tester; come back here with your browser\'s Back button.' },
   instagram: { text: 'Facebook asks for the password of the account signed in on this browser. If it shows someone else, choose "Not you?" or "Log in with another account". If Facebook says "Feature Unavailable", the Superstar owner needs to add you as a tester; come back here with your browser\'s Back button.' },
   youtube: { text: 'Google shows its account chooser. Pick your own account, or "Use another account".' },
   linkedin: { text: 'LinkedIn always connects the account already signed in on this browser and cannot be asked to switch. If that is not you, sign out of LinkedIn first.', signOut: 'https://www.linkedin.com/m/logout/' },
