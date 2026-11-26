@@ -81,14 +81,17 @@ services:
       POSTGRES_USER: cadencedesk
       POSTGRES_PWD: cadencedesk
       POSTGRES_SEEDS: postgres
+      # Temporal is on two networks (default for the worker, media for the isolated media worker). By default it listens
+      # only on one of its IPs (`hostname -i`), so one worker got "connection refused". Listen on all of them.
+      BIND_ON_IP: 0.0.0.0
+      TEMPORAL_BROADCAST_ADDRESS: 127.0.0.1
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "127.0.0.1:7233:7233"
     healthcheck:
-      # auto-setup listens on the container's own IP, not 127.0.0.1 (the first IP, as it is on two networks).
-      test: ["CMD-SHELL", "temporal operator namespace describe --namespace default --address $$(hostname -i | cut -d' ' -f1):7233"]
+      test: ["CMD-SHELL", "temporal operator namespace describe --namespace default --address 127.0.0.1:7233"]
       interval: 5s
       timeout: 5s
       retries: 30
