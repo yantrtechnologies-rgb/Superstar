@@ -175,6 +175,8 @@ export default async function Channels({ params, searchParams }: {
             if (provider.kind === 'reminder') return null;
             const configured = provider.kind === 'oauth' ? provider.configured()
               : Boolean(process.env[provider.tokenEnv] && process.env[provider.grantsEnv]);
+            // Instagram Login needs its own Instagram app credentials, which Meta no longer issues to newer apps; hide it until set up.
+            if (id === 'instagram-direct' && !configured) return null;
             return (
               <section key={id} className="provider-card">
                 <h3><span className="channel-avatar" data-provider={id} aria-hidden="true">{marks[id] ?? provider.name.slice(0, 1)}</span>Connect {provider.name}</h3>
