@@ -35,13 +35,24 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - run: pnpm db:migrate
-      - run: node --test apps/api/test/workspace-api.integration.mjs
-      - run: node --test apps/mcp/test/clients.integration.mjs
+      - name: API integration test
+        run: |
+          set -o pipefail
+          node --test apps/api/test/workspace-api.integration.mjs 2>&1 | tee "$RUNNER_TEMP/integration.log"
+      - run: node --test apps/mcp/test/clients.integration.mjs 2>&1 | tee "$RUNNER_TEMP/integration.log"
+        shell: bash -o pipefail {0}
       - name: Install media tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
-      - run: node --test apps/worker/test/publishing.integration.mjs
+      - run: node --test apps/worker/test/publishing.integration.mjs 2>&1 | tee "$RUNNER_TEMP/integration.log"
+        shell: bash -o pipefail {0}
+      # Job logs need a GitHub sign-in; an annotation shows the failing test's output to anyone who can see the run.
+      - name: Show integration test failure
+        if: failure()
+        run: >-
+          node -e "const fs=require('fs'); const f=process.env.RUNNER_TEMP+'/integration.log';
+          if (fs.existsSync(f)) console.log('::error title=Integration test output::'+fs.readFileSync(f,'utf8').slice(-6000).replace(/%/g,'%25').replace(/\r/g,'').replace(/\n/g,'%0A'))"
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm exec playwright test
       - run: docker compose config --quiet
@@ -49,7 +60,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose up --build --detach
+      - run: docker compose up --build --detach 2>&1 | tee "$RUNNER_TEMP/compose.log"
+        shell: bash -o pipefail {0}
+      - name: Show compose failure
+        if: failure()
+        run: >-
+          node -e "const fs=require('fs'); const f=process.env.RUNNER_TEMP+'/compose.log';
+          if (fs.existsSync(f)) console.log('::error title=Compose output::'+fs.readFileSync(f,'utf8').slice(-6000).replace(/%/g,'%25').replace(/\r/g,'').replace(/\n/g,'%0A'))"
       - name: Check the stack
         run: |
           for url in http://localhost:3000/health http://localhost:3001/health/ready http://localhost:3002; do
