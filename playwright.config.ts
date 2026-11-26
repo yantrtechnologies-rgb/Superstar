@@ -1,9 +1,27 @@
 import { defineConfig } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const baseURL = 'http://127.0.0.1:3930';
+
+/**
+ * The generated Prisma query engine in pnpm's store. `next start` run from the repository root doesn't find it on its
+ * own ("could not locate the Query Engine"), so the test server is told where it is.
+ */
+function prismaEngine() {
+  const store = join(process.cwd(), 'node_modules', '.pnpm');
+  if (!existsSync(store)) return undefined;
+  for (const folder of readdirSync(store).filter((name) => name.startsWith('@prisma+client@'))) {
+    const client = join(store, folder, 'node_modules', '.prisma', 'client');
+    if (!existsSync(client)) continue;
+    const engine = readdirSync(client).find((name) => name.startsWith('libquery_engine-') && name.endsWith('.node'));
+    if (engine) return join(client, engine);
+  }
+  return undefined;
+}
+const engine = prismaEngine();
 const mailFile = process.env.CADENCEDESK_E2E_MAIL_FILE ?? join(tmpdir(), `cadencedesk-mail-${randomUUID()}.jsonl`);
 process.env.CADENCEDESK_E2E_MAIL_FILE = mailFile;
 
@@ -23,6 +41,7 @@ export default defineConfig({
       // Passed on explicitly so the test server reaches the same database and Redis as the tests themselves.
       ...(process.env.DATABASE_URL ? { DATABASE_URL: process.env.DATABASE_URL } : {}),
       ...(process.env.REDIS_URL ? { REDIS_URL: process.env.REDIS_URL } : {}),
+      ...(engine ? { PRISMA_QUERY_ENGINE_LIBRARY: engine } : {}),
       DB_ERROR_DETAILS: '1',
       APP_URL: baseURL,
       BILLING_PLAN_LIMITS: '{"free":{"limits":{"seats":3}}}',
