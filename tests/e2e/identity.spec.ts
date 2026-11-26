@@ -25,7 +25,7 @@ async function signIn(page: Page, email: string) {
   await field.fill(email);
   await page.getByRole('button', { name: 'Send sign-in link' }).click();
   await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeVisible();
-  const message = await capturedMail(email, 'Your Superstar sign-in link');
+  const message = await capturedMail(email, 'Confirm your email to sign in to Superstar');
   const link = message?.text.match(/https?:\/\/\S+/)?.[0];
   if (!link) throw new Error('Sign-in email has no callback URL');
   await page.goto(link);
@@ -552,7 +552,7 @@ test('landing channel setup survives sign-in and opens Channels in a new workspa
   await page.locator('#email').fill(email);
   await page.getByRole('button', { name: 'Send sign-in link' }).click();
   await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeVisible();
-  const message = await capturedMail(email, 'Your Superstar sign-in link');
+  const message = await capturedMail(email, 'Confirm your email to sign in to Superstar');
   const link = message?.text.match(/https?:\/\/\S+/)?.[0];
   if (!link) throw new Error('Sign-in email has no callback URL');
   await page.goto(link);
