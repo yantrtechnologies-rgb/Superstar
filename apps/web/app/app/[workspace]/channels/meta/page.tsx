@@ -23,8 +23,8 @@ export default async function MetaAccountSelection({ params, searchParams }: {
     <>
       <h1>Choose your {facebook ? 'Facebook Pages' : 'Instagram accounts'}</h1>
       <p>
-        Facebook shared {choices.accounts.length} {noun}{choices.accounts.length === 1 ? '' : 's'} with Superstar.
-        Select every one you want to connect to this workspace.
+        Superstar found {choices.accounts.length} {noun}{choices.accounts.length === 1 ? '' : 's'} you can publish to,
+        including Pages in your Meta Business portfolios. Tick every one you want in this workspace.
       </p>
       <form action={metaConnectionAction} className="identity-form">
         <input type="hidden" name="intent" value="save" />
@@ -32,7 +32,7 @@ export default async function MetaAccountSelection({ params, searchParams }: {
         <input type="hidden" name="selection" value={selection} />
         {choices.accounts.map((account) => (
           <label key={account.id} className="channel-choice">
-            <input type="checkbox" name="account" value={account.id} defaultChecked /> {account.name}
+            <input type="checkbox" name="account" value={account.id} /> {account.name}
           </label>
         ))}
         {choices.unavailable.map((account) => (

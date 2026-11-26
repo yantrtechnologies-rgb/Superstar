@@ -582,6 +582,12 @@ test('Facebook and Instagram connections select accounts, reject replay and isol
       await expect(metaAccountChoices(outsider.id, workspace.slug, selection)).rejects.toBeInstanceOf(WorkspaceAccessError);
       await expect(metaAccountChoices(owner.id, 'wrong-workspace', selection)).rejects.toBeInstanceOf(WorkspaceAccessError);
       expect(await page.content()).not.toContain('fixture-page-token');
+      if (kind === 'Pages') {
+        // Found through the Business portfolio, not the dialog; a listing without a Page token is shown but disabled.
+        await expect(page.getByLabel('Portfolio Page', { exact: true })).toBeEnabled();
+        await expect(page.getByText('Client Page Without Role')).toBeVisible();
+        await expect(page.getByLabel(name, { exact: true })).toBeEnabled();
+      }
       await page.getByLabel(name, { exact: true }).check();
       await page.getByRole('button', { name: 'Connect selected accounts' }).click();
       await expect(page.getByRole('status')).toHaveText('Channel connected.');

@@ -25,6 +25,14 @@ and `packages/data/src/meta.ts`). Meta rejects requests for permissions an app d
 manages so they can choose which Pages to add to their Superstar workspace as publishing channels. Superstar
 reads only each Page's ID and name.
 
+### business_management
+**How Superstar uses it:** Many customers are agencies or businesses whose Pages sit in a Meta Business portfolio
+(owned Pages, or client Pages they manage for others). When a customer connects Facebook, Superstar reads the list
+of Business portfolios the customer belongs to and the Pages each portfolio owns or manages, so every Page the
+customer can publish to appears in Superstar's Page list, not only the ones ticked in the login dialog. Superstar
+reads only portfolio IDs and Page IDs, names and Page access, never changes portfolio settings, and connects only
+the Pages the customer then selects.
+
 ### pages_read_engagement
 **How Superstar uses it:** Superstar reads basic information about the Pages the customer selected (Page ID,
 name and the linked Instagram professional account) so it can show the connected Page in the customer's
@@ -68,7 +76,8 @@ Record in a fresh private window. Show the browser address bar throughout.
 1. Open the Superstar site and sign in with the reviewer account.
 2. Go to **Channels → Continue with Facebook for Pages**. Show the Facebook login and the permission dialog
    listing the Page permissions. Choose a test Page and approve.
-3. Back in Superstar, show the Page list (**pages_show_list**), select the Page and save. Show it in the
+3. Back in Superstar, show the Page list (**pages_show_list**), including a Page that belongs to the test
+   Business portfolio but was not ticked in the dialog (**business_management**). Select the Page and save. Show it in the
    channel list with its name (**pages_read_engagement**).
 4. Go to **Posts → New post**. Write a short post, attach an image, select the Facebook Page, click
    **Publish now**. Open the Page on Facebook and show the published post (**pages_manage_posts**).

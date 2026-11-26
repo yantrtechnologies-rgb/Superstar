@@ -75,7 +75,9 @@ export async function beginMetaConnection(userId: string, slug: string, provider
   if (!config) throw new ProviderConfigurationError('Meta connection setup is incomplete.');
   const state = randomBytes(32).toString('base64url');
   const url = new URL('https://www.facebook.com/' + config.version + '/dialog/oauth');
-  const scopes = ['pages_show_list', 'pages_read_engagement'];
+  // business_management (optional) lets the callback also list Pages owned or managed through the person's Meta
+  // Business portfolios, including agency client Pages they did not tick in the Facebook dialog.
+  const scopes = ['pages_show_list', 'pages_read_engagement', 'business_management'];
   // pages_manage_engagement lets the Page publish thread items as comments; it is requested but not required.
   // pages_read_user_content / instagram_manage_comments let the comments inbox read and answer comments.
   if (provider === 'facebook') scopes.push('pages_manage_posts', 'pages_manage_engagement', 'pages_read_user_content');
@@ -139,15 +141,51 @@ export async function completeMetaConnection(userId: string, state: string, code
     });
     const fields = 'id,name,access_token' + (provider === 'instagram' ? ',instagram_business_account{id,username}' : '');
     const pages: z.infer<typeof pageSchema>['data'] = [];
-    let cursor: string | undefined;
-    for (let batch = 0; batch < 10; batch++) {
-      const page = pageSchema.parse(await graph('me/accounts', {
-        fields, limit: '100', ...(cursor ? { after: cursor } : {}),
-      }, long.access_token));
-      pages.push(...page.data);
-      if (!page.paging?.next) break;
-      cursor = page.paging.cursors?.after;
-      if (!cursor || batch === 9) throw new ProviderConfigurationError('Unable to list all accounts.');
+    // Adds a Page once; a later listing that carries a Page token replaces an earlier one without it.
+    const addPage = (item: z.infer<typeof pageSchema>['data'][number]) => {
+      const index = pages.findIndex((existing) => existing.id === item.id);
+      if (index < 0) pages.push(item);
+      else if (!pages[index].access_token && item.access_token) pages[index] = item;
+    };
+    const listPages = async (path: string) => {
+      let cursor: string | undefined;
+      for (let batch = 0; batch < 10; batch++) {
+        const page = pageSchema.parse(await graph(path, {
+          fields, limit: '100', ...(cursor ? { after: cursor } : {}),
+        }, long.access_token));
+        page.data.forEach(addPage);
+        if (!page.paging?.next) return;
+        cursor = page.paging.cursors?.after;
+        if (!cursor || batch === 9) throw new ProviderConfigurationError('Unable to list all accounts.');
+      }
+    };
+    await listPages('me/accounts');
+    // Pages owned by, or managed as client Pages of, the person's Business portfolios. Optional: skipped when
+    // business_management was not granted, and a portfolio Meta refuses to list never fails the connection.
+    let businessPages = 0;
+    if (permissions.data.some((p) => p.permission === 'business_management' && p.status === 'granted')) {
+      const before = pages.length;
+      const businessSchema = z.object({
+        data: z.array(z.object({ id: identifier })),
+        paging: z.object({ next: z.string().optional(), cursors: z.object({ after: z.string() }).optional() }).optional(),
+      });
+      const businesses: string[] = [];
+      let cursor: string | undefined;
+      for (let batch = 0; batch < 5; batch++) {
+        const result = businessSchema.safeParse(await graph('me/businesses', {
+          fields: 'id', limit: '100', ...(cursor ? { after: cursor } : {}),
+        }, long.access_token).catch(() => null));
+        if (!result.success) break;
+        businesses.push(...result.data.data.map((business) => business.id));
+        cursor = result.data.paging?.next ? result.data.paging.cursors?.after : undefined;
+        if (!cursor) break;
+      }
+      for (const business of businesses.slice(0, 50)) {
+        for (const edge of ['owned_pages', 'client_pages']) {
+          await listPages(business + '/' + edge).catch(() => undefined);
+        }
+      }
+      businessPages = pages.length - before;
     }
     // Pages managed through a business portfolio can be granted without appearing in me/accounts.
     // Look up any Page the person selected in the dialog (debug_token granular scopes) directly by ID.
@@ -175,7 +213,7 @@ export async function completeMetaConnection(userId: string, state: string, code
       else unavailable.push({ id: item.id, name: item.name, reason: 'No Instagram professional account is linked to this Page.' });
     }
     console.info(JSON.stringify({
-      event: 'meta.listed', provider, pages: pages.length, grantedPages: grantedPages.length,
+      event: 'meta.listed', provider, pages: pages.length, grantedPages: grantedPages.length, businessPages,
       connectable: accounts.length, unavailable: unavailable.length,
     }));
     if (!accounts.length) {
