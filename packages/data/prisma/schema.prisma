@@ -187,6 +187,8 @@ model Channel {
   clientGroup   ClientGroup? @relation(fields: [clientGroupId], references: [id], onDelete: SetNull)
   postingSlots  PostingSlot[]
   metricJobs    MetricJob[]
+  /// Reminder channels only: who is emailed the post kit when a post is due (networks apps can't post to).
+  reminderEmail String? @map("reminder_email")
 
   @@unique([workspaceId, provider, externalId])
   @@map("channels")
@@ -272,6 +274,8 @@ model Destination {
   externalId  String?      @map("external_id")
   permalink   String?
   error       String?
+  /// Reminder channels only: when someone marked the reminded post as posted by hand.
+  confirmedAt DateTime?    @map("confirmed_at")
   post        Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
   channel     Channel      @relation(fields: [channelId], references: [id], onDelete: NoAction)
   outbox      OutboxEvent?

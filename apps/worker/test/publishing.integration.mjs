@@ -812,3 +812,59 @@ test('review-gated RSS schedules once after approval and waits when no shared sl
     await prisma.$disconnect();
   }
 });
+
+test('a reminder channel emails the post kit when due, and the post can be marked as posted', { timeout: 30_000 }, async () => {
+  const { addReminderChannel, confirmReminder, listReminders } = await import('@cadencedesk/data');
+  const owner = await prisma.user.create({ data: { email: 'reminder-' + crypto.randomUUID() + '@example.invalid' } });
+  const workspace = await createWorkspace(owner.id, 'Reminder Fixture', 'UTC');
+  const emails = [];
+  const originalFetch = globalThis.fetch;
+  const saved = { ...process.env };
+  for (const key of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD']) delete process.env[key];
+  Object.assign(process.env, { RESEND_API_KEY: 'fixture-resend', EMAIL_FROM: 'Superstar <reminders@example.invalid>', APP_URL: 'https://superstar.example.invalid' });
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    if (url.origin !== 'https://api.resend.com') return originalFetch(input, init);
+    assert.equal(init.headers.Authorization, 'Bearer fixture-resend');
+    emails.push(JSON.parse(init.body));
+    return Response.json({ id: 'email-fixture' });
+  };
+  try {
+    await assert.rejects(addReminderChannel(owner.id, workspace.slug, { name: 'Outsider', network: 'facebook-profile', recipientId: crypto.randomUUID() }));
+    const channel = await addReminderChannel(owner.id, workspace.slug, { name: 'Reshma profile', network: 'facebook-profile', recipientId: owner.id });
+    assert.equal(channel.provider, 'reminder');
+    assert.match(channel.externalId, /^facebook-profile:/);
+    const draft = await savePost(owner.id, workspace.slug, 'Diwali offer <b>today</b>\nVisit the clinic.');
+    await transitionPost(owner.id, workspace.slug, draft.id, 1, 'IN_REVIEW', [channel.id]);
+    await transitionPost(owner.id, workspace.slug, draft.id, 1, 'APPROVED');
+    await schedulePost(owner.id, workspace.slug, draft.id, 1, [channel.id], new Date(Date.now() + 500));
+    await setTimeout(800);
+    const destination = await prisma.destination.findFirstOrThrow({ where: { postId: draft.id } });
+    await publishDestination(destination.id);
+    const sent = await prisma.destination.findUniqueOrThrow({ where: { id: destination.id } });
+    assert.equal(sent.state, 'PUBLISHED');
+    assert.match(sent.externalId, /^reminder-/);
+    assert.equal(emails.length, 1);
+    assert.equal(emails[0].to, owner.email);
+    assert.match(emails[0].subject, /Reshma profile \(Facebook profile\)/);
+    assert.match(emails[0].text, /Diwali offer <b>today<\/b>/);
+    assert.ok(emails[0].html.includes('&lt;b&gt;today'), 'post text is escaped in the HTML email');
+    assert.ok(emails[0].html.includes(`https://superstar.example.invalid/app/${workspace.slug}/reminders`));
+
+    const [reminder] = await listReminders(owner.id, workspace.slug);
+    assert.equal(reminder.id, destination.id);
+    assert.equal(reminder.network.open, 'https://www.facebook.com/');
+    assert.equal(reminder.confirmedAt, null);
+    await assert.rejects(confirmReminder(owner.id, workspace.slug, destination.id, 'javascript:alert(1)'));
+    await confirmReminder(owner.id, workspace.slug, destination.id, 'https://www.facebook.com/reshma/posts/1');
+    const [done] = await listReminders(owner.id, workspace.slug);
+    assert.ok(done.confirmedAt);
+    assert.equal(done.permalink, 'https://www.facebook.com/reshma/posts/1');
+  } finally {
+    globalThis.fetch = originalFetch;
+    process.env = saved;
+    await prisma.workspace.delete({ where: { id: workspace.id } });
+    await prisma.user.delete({ where: { id: owner.id } });
+    await prisma.$disconnect();
+  }
+});

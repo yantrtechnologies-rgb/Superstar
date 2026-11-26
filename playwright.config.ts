@@ -9,6 +9,8 @@ process.env.CADENCEDESK_E2E_MAIL_FILE = mailFile;
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // On GitHub, failures also appear as annotations, which can be read without signing in to see the job log.
+  reporter: process.env.CI ? [['github'], ['list']] : 'list',
   use: {
     baseURL,
     browserName: 'chromium',

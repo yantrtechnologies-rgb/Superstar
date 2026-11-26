@@ -20,11 +20,12 @@ const icons = {
   media: icon(<><rect x="3" y="4" width="18" height="16" rx="2.5" /><circle cx="9" cy="10" r="1.8" /><path d="m21 16-5.5-5.5L5 20" /></>),
   content: icon(<><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z" /><circle cx="7.5" cy="7.5" r="1.5" /></>),
   inbox: icon(<><path d="M4 5.5h16v10H14l-2 3-2-3H4z" /><path d="M8 9.5h8M8 12.5h5" /></>),
+  reminders: icon(<><circle cx="12" cy="13" r="7.5" /><path d="M12 9.5V13l2.5 2M4.5 4.5l3 -2M19.5 4.5l-3-2" /></>),
   billing: icon(<><rect x="2.5" y="5" width="19" height="14" rx="2.5" /><path d="M2.5 10h19M6.5 15h4" /></>),
 };
 
 const groups = [
-  ['Publish', [['', 'Overview', 'home'], ['/calendar', 'Calendar', 'calendar'], ['/posts', 'Posts', 'posts'], ['/media', 'Media', 'media'], ['/channels', 'Channels', 'channels']]],
+  ['Publish', [['', 'Overview', 'home'], ['/calendar', 'Calendar', 'calendar'], ['/posts', 'Posts', 'posts'], ['/media', 'Media', 'media'], ['/channels', 'Channels', 'channels'], ['/reminders', 'Reminders', 'reminders']]],
   ['Grow', [['/inbox', 'Inbox', 'inbox'], ['/analytics', 'Analytics', 'analytics'], ['/studio', 'AI Studio', 'studio'], ['/automations', 'Automations', 'automations']]],
   ['Workspace', [['/settings/content', 'Tags & signatures', 'content'], ['/settings', 'Team settings', 'settings']]],
 ] as const;

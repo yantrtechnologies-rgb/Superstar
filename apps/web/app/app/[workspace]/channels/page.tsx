@@ -1,11 +1,12 @@
 import { metaConnectionAction } from './meta/actions';
-import { metaConfiguration, canManageTeam, connectLinkProviderName, connectLinkProviders, getProvider, linkedInPagesConfigured, listChannels, listConnectLinks, providerIds, providers } from '@cadencedesk/data';
+import { metaConfiguration, canManageTeam, connectLinkProviderName, connectLinkProviders, getProvider, linkedInPagesConfigured, listChannels, listConnectLinks, providerIds, providers, reminderNetwork, reminderNetworks, reminderRecipients } from '@cadencedesk/data';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getMembership, requireUser } from '../../../../lib/require-user';
 import { connectChannelAction, disconnectOAuthAction, startOAuthAction } from '../publishing-actions';
 import { connectLinkAction } from './connect-link-actions';
 import { CopyLink } from './copy-link';
+import { reminderChannelAction } from './reminder-actions';
 
 const messages: Record<string, string> = {
   saved: 'Channel connected.',
@@ -29,11 +30,14 @@ const messages: Record<string, string> = {
   'link-created': 'Connect link created. Copy it below and send it to your client.',
   'link-revoked': 'Connect link revoked. It no longer works.',
   'link-unavailable': 'That connect link could not be created or changed. Check the network is configured, then try again.',
+  'reminder-added': 'Reminder channel added. Choose it when you schedule a post, and Superstar emails the post kit when it is due.',
+  'reminder-removed': 'Reminder channel removed. Posts already sent stay on the Reminders page.',
+  'reminder-invalid': 'Give the reminder channel a name and choose who gets the email.',
 };
 
 // How each network decides which account gets connected, so testers never connect someone else's account by accident.
 const accountNotes: Record<string, { text: string; signOut?: string }> = {
-  facebook: { text: 'Facebook asks for the password of the account signed in on this browser. If it shows someone else, choose "Not you?" or "Log in with another account". When Facebook lists your Pages, tick every Page you want (choose "Edit access" if it skips that step); you can connect several Pages at once. Personal profiles can\'t be connected: Facebook only lets apps post to Pages. If Facebook says "Feature Unavailable", the Superstar owner needs to add you as a tester; come back here with your browser\'s Back button.' },
+  facebook: { text: 'Facebook asks for the password of the account signed in on this browser. If it shows someone else, choose "Not you?" or "Log in with another account". When Facebook lists your Pages, tick every Page you want (choose "Edit access" if it skips that step); you can connect several Pages at once. Personal profiles can\'t be connected: Facebook only lets apps post to Pages. For a profile or Group, add a reminder channel below instead. If Facebook says "Feature Unavailable", the Superstar owner needs to add you as a tester; come back here with your browser\'s Back button.' },
   instagram: { text: 'Facebook asks for the password of the account signed in on this browser. If it shows someone else, choose "Not you?" or "Log in with another account". If Facebook says "Feature Unavailable", the Superstar owner needs to add you as a tester; come back here with your browser\'s Back button.' },
   youtube: { text: 'Google shows its account chooser. Pick your own account, or "Use another account".' },
   linkedin: { text: 'LinkedIn always connects the account already signed in on this browser and cannot be asked to switch. If that is not you, sign out of LinkedIn first.', signOut: 'https://www.linkedin.com/m/logout/' },
@@ -63,7 +67,8 @@ export default async function Channels({ params, searchParams }: {
   const canManage = canManageTeam(membership.role);
   const linkProviders = canManage ? connectLinkProviders() : [];
   const links = canManage ? await listConnectLinks(user.id, workspace) : [];
-  const marks: Record<string, string> = { facebook: 'f', instagram: 'ig', linkedin: 'in', youtube: '▶', x: 'X', telegram: 'tg', discord: 'dc' };
+  const recipients = canManage ? await reminderRecipients(user.id, workspace) : [];
+  const marks: Record<string, string> = { facebook: 'f', instagram: 'ig', linkedin: 'in', youtube: '▶', x: 'X', telegram: 'tg', discord: 'dc', reminder: '⏰' };
   return (
     <>
       <header className="page-header">
@@ -91,10 +96,25 @@ export default async function Channels({ params, searchParams }: {
                   </span>
                   <div>
                     <strong>{channel.name}</strong>
-                    <span>{provider?.name ?? (channel.provider === 'facebook' ? 'Facebook Page' : channel.provider === 'instagram' ? 'Instagram' : channel.provider)}</span>
+                    <span>{channel.provider === 'reminder' ? `${reminderNetwork(channel.externalId).name} · reminder`
+                      : provider?.name ?? (channel.provider === 'facebook' ? 'Facebook Page' : channel.provider === 'instagram' ? 'Instagram' : channel.provider)}</span>
                   </div>
                 </header>
-                {oauth ? <span className={'badge ' + health[1]}>{health[0]}</span> : <span className="badge badge-ok">Bot connected</span>}
+                {channel.provider === 'reminder' ? (
+                  <>
+                    {channel.reminderEmail
+                      ? <span className="badge badge-ok">Emails {channel.reminderEmail}</span>
+                      : <span className="badge badge-muted">Reminders off</span>}
+                    {canManage && channel.reminderEmail && (
+                      <form action={reminderChannelAction}>
+                        <input type="hidden" name="intent" value="remove" />
+                        <input type="hidden" name="workspace" value={workspace} />
+                        <input type="hidden" name="channelId" value={channel.id} />
+                        <button type="submit" className="btn">Remove {channel.name}</button>
+                      </form>
+                    )}
+                  </>
+                ) : oauth ? <span className={'badge ' + health[1]}>{health[0]}</span> : <span className="badge badge-ok">Bot connected</span>}
                 {meta && <p>Ready for draft selection and scheduled publishing.</p>}
                 {meta && canManage && credential && (
                   <form action={metaConnectionAction}>
@@ -147,8 +167,9 @@ export default async function Channels({ params, searchParams }: {
               )}
             </section>
           ))}
-          {providerIds.filter((id) => !['facebook', 'instagram'].includes(id)).map((id) => {
+          {providerIds.filter((id) => !['facebook', 'instagram', 'reminder'].includes(id)).map((id) => {
             const provider = providers[id];
+            if (provider.kind === 'reminder') return null;
             const configured = provider.kind === 'oauth' ? provider.configured()
               : Boolean(process.env[provider.tokenEnv] && process.env[provider.grantsEnv]);
             return (
@@ -186,6 +207,30 @@ export default async function Channels({ params, searchParams }: {
               </form>
             </section>
           )}
+          <section id="reminder-channel" className="provider-card">
+            <h3><span className="channel-avatar" data-provider="reminder" aria-hidden="true">⏰</span>Facebook profile, Group or other (reminder)</h3>
+            <p>
+              Facebook doesn&apos;t let any app post to personal profiles or Groups. Add one here, and when a post is due
+              Superstar emails the text and media to the person you choose. They post it themselves in a minute, then mark it
+              done on the Reminders page.
+            </p>
+            <form action={reminderChannelAction} className="identity-form">
+              <input type="hidden" name="intent" value="add" />
+              <input type="hidden" name="workspace" value={workspace} />
+              <label htmlFor="reminder-network">Where it gets posted</label>
+              <select id="reminder-network" name="network" defaultValue="facebook-profile">
+                {Object.entries(reminderNetworks).map(([id, network]) => <option key={id} value={id}>{network.name}</option>)}
+              </select>
+              <label htmlFor="reminder-name">Name</label>
+              <input id="reminder-name" name="name" maxLength={80} required placeholder="e.g. Reshma Patel's profile" />
+              <label htmlFor="reminder-recipient">Email the reminder to</label>
+              <select id="reminder-recipient" name="recipientId" required>
+                {recipients.map((member) => <option key={member.id} value={member.id}>{member.name ? `${member.name} (${member.email})` : member.email}</option>)}
+              </select>
+              <p className="muted-line">Only workspace members can get reminders. To remind a client, invite them on Team settings first.</p>
+              <button type="submit" className="primary">Add reminder channel</button>
+            </form>
+          </section>
         </div>
         {linkProviders.length > 0 && (
           <section id="client-links" className="panel">

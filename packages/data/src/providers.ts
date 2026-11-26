@@ -2,12 +2,13 @@ import { discord } from './discord';
 import { linkedin } from './linkedin';
 import { facebook, instagram } from './meta';
 import { ProviderConfigurationError, type ProviderAdapter, type ProviderId } from './provider-contract';
+import { reminder } from './reminders';
 import { telegram } from './telegram';
 import { youtube } from './youtube';
 import { x } from './x';
 
 export const providers: Record<ProviderId, ProviderAdapter> = {
-  discord, telegram, linkedin, facebook, instagram, youtube, x,
+  discord, telegram, linkedin, facebook, instagram, youtube, x, reminder,
 };
 
 export function getProvider(id: string): ProviderAdapter | undefined {

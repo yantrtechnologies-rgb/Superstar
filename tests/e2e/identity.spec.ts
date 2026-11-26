@@ -664,3 +664,26 @@ test('a client connect link lets someone without a Superstar account connect Fac
     await prisma.$disconnect();
   }
 });
+
+test('a reminder channel can be added for a Facebook profile and shows on the Reminders page', async ({ page }) => {
+  await signIn(page, `reminder-${randomUUID()}@example.invalid`);
+  const base = await createWorkspace(page, 'Reminder Studio');
+  await page.goto(base + '/channels');
+  const card = page.locator('#reminder-channel');
+  await expect(card.getByLabel('Where it gets posted')).toHaveValue('facebook-profile');
+  await card.getByLabel('Name').fill('Reshma Patel profile');
+  await card.getByRole('button', { name: 'Add reminder channel' }).click();
+  await expect(page.getByRole('status')).toContainText('Reminder channel added');
+  const channel = page.locator('.channel-card', { hasText: 'Reshma Patel profile' });
+  await expect(channel).toContainText('Facebook profile · reminder');
+  await expect(channel).toContainText(/Emails reminder-.*@example\.invalid/);
+
+  await page.getByRole('navigation', { name: 'Workspace navigation' }).getByRole('link', { name: 'Reminders' }).click();
+  await expect(page.getByRole('heading', { name: 'Reminders', exact: true })).toBeVisible();
+  await expect(page.getByText('No reminders yet.')).toBeVisible();
+
+  await page.goto(base + '/channels');
+  await channel.getByRole('button', { name: 'Remove Reshma Patel profile' }).click();
+  await expect(page.getByRole('status')).toContainText('Reminder channel removed');
+  await expect(page.locator('.channel-card', { hasText: 'Reshma Patel profile' })).toHaveCount(0);
+});

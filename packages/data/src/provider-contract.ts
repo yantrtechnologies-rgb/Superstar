@@ -1,4 +1,4 @@
-export const providerIds = ['discord', 'telegram', 'linkedin', 'facebook', 'instagram', 'youtube', 'x'] as const;
+export const providerIds = ['discord', 'telegram', 'linkedin', 'facebook', 'instagram', 'youtube', 'x', 'reminder'] as const;
 export type ProviderId = (typeof providerIds)[number];
 
 export class ProviderConfigurationError extends Error {}
@@ -45,7 +45,10 @@ export type OAuthProviderAdapter = PublishingProvider & {
   configured(): boolean;
 };
 
-export type ProviderAdapter = BotProviderAdapter | OAuthProviderAdapter;
+/** Networks apps can't post to: when a post is due, the person is emailed what to post and posts it by hand. */
+export type ReminderProviderAdapter = PublishingProvider & { kind: 'reminder' };
+
+export type ProviderAdapter = BotProviderAdapter | OAuthProviderAdapter | ReminderProviderAdapter;
 
 export function botToken(adapter: BotProviderAdapter, workspace: string, destinationId: string) {
   const token = process.env[adapter.tokenEnv];

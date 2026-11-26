@@ -21,6 +21,7 @@ export type { WebhookDeliveryState } from '@prisma/client';
 export * from './api-access';
 export * from './meta-connection';
 export * from './connect-links';
+export { addReminderChannel, confirmReminder, listReminders, reminderNetwork, reminderNetworks, reminderRecipients, removeReminderChannel, type ReminderNetwork } from './reminders';
 export * from './meta';
 export * from './youtube';
 export * from './x';
