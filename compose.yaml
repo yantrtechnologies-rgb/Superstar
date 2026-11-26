@@ -87,7 +87,8 @@ services:
     ports:
       - "127.0.0.1:7233:7233"
     healthcheck:
-      test: ["CMD", "temporal", "operator", "namespace", "describe", "--namespace", "default", "--address", "127.0.0.1:7233"]
+      # auto-setup listens on the container's own IP, not 127.0.0.1 (the first IP, as it is on two networks).
+      test: ["CMD-SHELL", "temporal operator namespace describe --namespace default --address $$(hostname -i | cut -d' ' -f1):7233"]
       interval: 5s
       timeout: 5s
       retries: 30

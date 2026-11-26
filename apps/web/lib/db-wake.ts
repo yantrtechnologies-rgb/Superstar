@@ -19,11 +19,19 @@ let lastCheck = 0;
 let lastState: DatabaseState | null = null;
 let inFlight: Promise<DatabaseState> | null = null;
 
+let lastError = '';
+
 async function reachable(timeoutMs: number) {
   const ping = prisma.$queryRaw`SELECT 1`.then(() => true);
-  const timeout = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), timeoutMs));
-  return Promise.race([ping, timeout]).catch(() => false);
+  const timeout = new Promise<boolean>((resolve) => setTimeout(() => { lastError = `no answer in ${timeoutMs} ms`; resolve(false); }, timeoutMs));
+  return Promise.race([ping, timeout]).catch((error: unknown) => {
+    lastError = error instanceof Error ? error.message : String(error);
+    return false;
+  });
 }
+
+/** Test runs only (DB_ERROR_DETAILS=1): append why the database check failed, since the server log isn't visible there. */
+const details = (message: string) => process.env.DB_ERROR_DETAILS === '1' && lastError ? `${message} (${lastError.slice(0, 300)})` : message;
 
 async function publicIp() {
   const res = await fetch('https://checkip.amazonaws.com', { signal: AbortSignal.timeout(5000), cache: 'no-store' });
@@ -52,7 +60,7 @@ async function allowThisPc(region: string, groupIds: string[], port: number) {
 async function wake(): Promise<DatabaseState> {
   const id = process.env.RDS_INSTANCE_ID;
   const region = process.env.RDS_REGION ?? process.env.OBJECT_STORAGE_REGION;
-  if (!id || !region) return { ready: false, status: 'unavailable', message: 'The database is not reachable right now. Try again in a few minutes.' };
+  if (!id || !region) return { ready: false, status: 'unavailable', message: details('The database is not reachable right now. Try again in a few minutes.') };
   const rds = new RDSClient({ region });
   const db = (await rds.send(new DescribeDBInstancesCommand({ DBInstanceIdentifier: id }))).DBInstances?.[0];
   const status = db?.DBInstanceStatus ?? 'unknown';

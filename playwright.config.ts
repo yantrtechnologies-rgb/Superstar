@@ -20,6 +20,10 @@ export default defineConfig({
     command: 'node --import ./scripts/capture-resend.mjs --import ./scripts/mock-linkedin.mjs --import ./scripts/mock-meta.mjs --import ./scripts/mock-youtube-x.mjs --import ./scripts/mock-storage.mjs apps/web/node_modules/next/dist/bin/next start apps/web -H 127.0.0.1 -p 3930',
     url: baseURL + '/health',
     env: {
+      // Passed on explicitly so the test server reaches the same database and Redis as the tests themselves.
+      ...(process.env.DATABASE_URL ? { DATABASE_URL: process.env.DATABASE_URL } : {}),
+      ...(process.env.REDIS_URL ? { REDIS_URL: process.env.REDIS_URL } : {}),
+      DB_ERROR_DETAILS: '1',
       APP_URL: baseURL,
       BILLING_PLAN_LIMITS: '{"free":{"limits":{"seats":3}}}',
       AUTH_URL: baseURL,
