@@ -50,9 +50,7 @@ jobs:
       # Job logs need a GitHub sign-in; an annotation shows the failing test's output to anyone who can see the run.
       - name: Show integration test failure
         if: failure()
-        run: >-
-          node -e "const fs=require('fs'); const f=process.env.RUNNER_TEMP+'/integration.log';
-          if (fs.existsSync(f)) console.log('::error title=Integration test output::'+fs.readFileSync(f,'utf8').slice(-6000).replace(/%/g,'%25').replace(/\r/g,'').replace(/\n/g,'%0A'))"
+        run: node scripts/ci-annotate.mjs "$RUNNER_TEMP/integration.log" "Integration test failure"
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm exec playwright test
       - run: docker compose config --quiet
@@ -60,13 +58,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker compose up --build --detach 2>&1 | tee "$RUNNER_TEMP/compose.log"
+      - run: docker compose --progress plain up --build --detach 2>&1 | tee "$RUNNER_TEMP/compose.log"
         shell: bash -o pipefail {0}
-      - name: Show compose failure
-        if: failure()
-        run: >-
-          node -e "const fs=require('fs'); const f=process.env.RUNNER_TEMP+'/compose.log';
-          if (fs.existsSync(f)) console.log('::error title=Compose output::'+fs.readFileSync(f,'utf8').slice(-6000).replace(/%/g,'%25').replace(/\r/g,'').replace(/\n/g,'%0A'))"
       - name: Check the stack
         run: |
           for url in http://localhost:3000/health http://localhost:3001/health/ready http://localhost:3002; do
@@ -83,5 +76,11 @@ jobs:
           exit 1
       - if: failure()
         run: docker compose logs --no-color
+      # Job logs need a GitHub sign-in; an annotation shows which container failed and its last log lines.
+      - name: Show compose failure
+        if: failure()
+        run: |
+          { tail -n 15 "$RUNNER_TEMP/compose.log"; docker compose ps -a; docker compose logs --no-color --tail 15; } > "$RUNNER_TEMP/compose-failure.log" 2>&1 || true
+          node scripts/ci-annotate.mjs "$RUNNER_TEMP/compose-failure.log" "Compose failure"
       - if: always()
         run: docker compose down --volumes
