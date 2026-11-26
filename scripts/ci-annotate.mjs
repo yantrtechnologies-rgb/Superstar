@@ -12,5 +12,6 @@ lines.forEach((line, index) => {
   const end = lines.findIndex((next, at) => at > index && /^\s*\.\.\.\s*$/.test(next));
   blocks.push(lines.slice(Math.max(0, index - 3), end === -1 ? index + 40 : end + 1).join('\n'));
 });
-const text = (blocks.length ? blocks.join('\n\n') : lines.filter((line) => line.trim()).slice(-80).join('\n')).slice(0, 12_000);
+// GitHub cuts annotations off after a few thousand characters, so keep only the most useful part.
+const text = (blocks.length ? blocks.join('\n\n') : lines.filter((line) => line.trim()).slice(-40).join('\n')).slice(0, 3_500);
 console.log(`::error title=${title}::` + text.replace(/%/g, '%25').replace(/\r/g, '').replace(/\n/g, '%0A'));

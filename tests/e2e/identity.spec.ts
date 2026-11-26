@@ -13,13 +13,14 @@ async function capturedMail(email: string, subject: string) {
 }
 
 async function signIn(page: Page, email: string) {
-  await page.goto('/login');
+  const response = await page.goto('/login');
   // The page has a password form and a sign-in-link form, each with an "Email address" field; use the link form.
   const field = page.locator('#email');
   try {
     await field.waitFor({ timeout: 15_000 });
   } catch {
-    throw new Error('The sign-in page has no sign-in-link form. It shows: ' + (await page.locator('body').innerText()).slice(0, 600));
+    const html = (await page.content()).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<link[^>]*>/g, '');
+    throw new Error(`The sign-in page has no sign-in-link form (HTTP ${response?.status()} at ${page.url()}). HTML: ${html.slice(0, 1500)}`);
   }
   await field.fill(email);
   await page.getByRole('button', { name: 'Send sign-in link' }).click();

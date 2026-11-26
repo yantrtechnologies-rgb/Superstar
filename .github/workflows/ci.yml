@@ -80,7 +80,8 @@ jobs:
       - name: Show compose failure
         if: failure()
         run: |
-          { docker compose logs --no-color --tail 6; grep -iE 'error|unhealthy|exited' "$RUNNER_TEMP/compose.log" | tail -n 15; docker compose ps -a --format 'table {{.Service}}\t{{.State}}\t{{.Status}}'; } > "$RUNNER_TEMP/compose-failure.log" 2>&1 || true
+          # GitHub shortens long annotations, so the container states and errors come first.
+          { docker compose ps -a --format 'table {{.Service}}\t{{.State}}\t{{.Status}}'; grep -iE 'error|unhealthy|exited|dependency failed' "$RUNNER_TEMP/compose.log" | tail -n 10; } > "$RUNNER_TEMP/compose-failure.log" 2>&1 || true
           node scripts/ci-annotate.mjs "$RUNNER_TEMP/compose-failure.log" "Compose failure"
       - if: always()
         run: docker compose down --volumes
